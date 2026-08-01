@@ -1,0 +1,674 @@
+<title>Forecasting Engine — Architecture &amp; Team Guide</title>
+
+<style>
+  :root {
+    --ground:   #F4F6F5;
+    --surface:  #FFFFFF;
+    --sunken:   #EAEEEC;
+    --ink:      #161A1C;
+    --muted:    #5B6763;
+    --hairline: #D5DCD9;
+
+    --petrol:   #15605C;
+    --clay:     #A85433;
+    --slate:    #4E5D7E;
+
+    --petrol-wash: #15605C14;
+    --clay-wash:   #A8543314;
+    --slate-wash:  #4E5D7E14;
+
+    --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --radius: 3px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #101413; --surface: #171C1B; --sunken: #1D2322;
+      --ink: #E6EAE8; --muted: #93A09B; --hairline: #2C3533;
+      --petrol: #5CB8AE; --clay: #DE9367; --slate: #8A9BC4;
+      --petrol-wash: #5CB8AE1A; --clay-wash: #DE93671A; --slate-wash: #8A9BC41A;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F5; --surface: #FFFFFF; --sunken: #EAEEEC;
+    --ink: #161A1C; --muted: #5B6763; --hairline: #D5DCD9;
+    --petrol: #15605C; --clay: #A85433; --slate: #4E5D7E;
+    --petrol-wash: #15605C14; --clay-wash: #A8543314; --slate-wash: #4E5D7E14;
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101413; --surface: #171C1B; --sunken: #1D2322;
+    --ink: #E6EAE8; --muted: #93A09B; --hairline: #2C3533;
+    --petrol: #5CB8AE; --clay: #DE9367; --slate: #8A9BC4;
+    --petrol-wash: #5CB8AE1A; --clay-wash: #DE93671A; --slate-wash: #8A9BC41A;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 96px; }
+
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding: 56px 0 24px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  }
+  .masthead h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 5vw, 3.1rem);
+    line-height: 1.08; letter-spacing: -0.02em;
+    font-weight: 400; text-wrap: balance; margin: 0;
+  }
+  .standfirst { max-width: var(--measure); font-size: 1.0625rem; color: var(--muted); margin: 0; }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 8px 28px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding-top: 6px;
+  }
+  .meta-row b { color: var(--ink); font-weight: 600; }
+
+  .doc {
+    display: grid; grid-template-columns: 200px minmax(0, 1fr);
+    gap: 56px; padding-top: 44px; align-items: start;
+  }
+  @media (max-width: 900px) {
+    .doc { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .toc { display: none; }
+  }
+
+  .toc {
+    position: sticky; top: 24px; font-size: 13px;
+    display: flex; flex-direction: column; gap: 9px;
+    border-left: 1px solid var(--hairline); padding-left: 16px;
+  }
+  .toc a { color: var(--muted); text-decoration: none; line-height: 1.35; }
+  .toc a:hover { color: var(--petrol); }
+  .toc .toc-num { font-family: var(--font-mono); font-size: 10px; color: var(--hairline); margin-right: 7px; }
+
+  .body-col { min-width: 0; display: flex; flex-direction: column; gap: 60px; }
+  section { display: flex; flex-direction: column; gap: 20px; scroll-margin-top: 24px; }
+
+  h2 {
+    font-family: var(--font-display); font-weight: 400;
+    font-size: 1.75rem; letter-spacing: -0.015em; line-height: 1.2;
+    margin: 0; padding-bottom: 10px;
+    border-bottom: 1px solid var(--hairline); text-wrap: balance;
+  }
+  h2 .h-num {
+    font-family: var(--font-mono); font-size: 0.68rem; color: var(--petrol);
+    vertical-align: 0.5em; margin-right: 12px; letter-spacing: 0.08em;
+  }
+  h3 { font-family: var(--font-body); font-size: 0.95rem; font-weight: 650; margin: 0; }
+  p { margin: 0; max-width: var(--measure); }
+  .body-col ul { margin: 0; padding-left: 1.15em; max-width: var(--measure); display: flex; flex-direction: column; gap: 7px; }
+  li::marker { color: var(--muted); }
+
+  a { color: var(--petrol); text-underline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--font-mono); font-size: 0.855em;
+    background: var(--sunken); padding: 0.12em 0.36em; border-radius: var(--radius);
+  }
+  pre {
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: var(--radius); padding: 16px 18px; overflow-x: auto; margin: 0;
+  }
+  pre code {
+    background: none; padding: 0; font-size: 12.5px;
+    line-height: 1.62; display: block; white-space: pre;
+  }
+  .cmt { color: var(--muted); }
+  .kw  { color: var(--clay); }
+  .str { color: var(--slate); }
+
+  .note {
+    font-size: 0.9rem; color: var(--muted); max-width: var(--measure);
+    border-left: 2px solid var(--petrol); padding-left: 14px;
+  }
+
+  .strip-scroll { overflow-x: auto; padding-bottom: 6px; }
+  .strip {
+    display: grid; grid-auto-flow: column;
+    grid-auto-columns: minmax(132px, 1fr); gap: 5px; min-width: 720px;
+  }
+  .stage {
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-top: 3px solid var(--slate); border-radius: var(--radius);
+    padding: 12px 13px 14px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .stage.own-data  { border-top-color: var(--petrol); background: var(--petrol-wash); }
+  .stage.own-model { border-top-color: var(--clay);   background: var(--clay-wash); }
+  .stage-n { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--muted); }
+  .stage-t { font-size: 13px; font-weight: 650; line-height: 1.25; }
+  .stage-o { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 12.5px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 22px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  .contracts { display: flex; flex-direction: column; gap: 18px; }
+  .contract {
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: var(--radius); padding: 20px 22px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .contract-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+  .contract-head h3 { font-family: var(--font-mono); font-size: 0.95rem; font-weight: 600; }
+  .owner-tag {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 2px;
+  }
+  .tag-data  { color: var(--petrol); background: var(--petrol-wash); }
+  .tag-model { color: var(--clay);   background: var(--clay-wash); }
+  .tag-both  { color: var(--slate);  background: var(--slate-wash); }
+
+  .wf { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }
+  .wf-bar { display: flex; height: 26px; border-radius: var(--radius); overflow: hidden; font-family: var(--font-mono); font-size: 10px; }
+  .wf-seg { display: flex; align-items: center; justify-content: center; letter-spacing: 0.06em; }
+  .wf-train { background: var(--petrol); color: var(--ground); flex: 6; }
+  .wf-purge { background: repeating-linear-gradient(45deg, var(--hairline), var(--hairline) 3px, transparent 3px, transparent 6px); color: var(--muted); flex: 1.1; }
+  .wf-test  { background: var(--clay); color: var(--ground); flex: 2; }
+  .wf-cap { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 540px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  th {
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); font-weight: 500; border-bottom-color: var(--ink);
+  }
+  td.num { font-variant-numeric: tabular-nums; font-family: var(--font-mono); white-space: nowrap; }
+  .pill {
+    display: inline-block; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 2px; white-space: nowrap;
+  }
+  .p-you  { color: var(--petrol); background: var(--petrol-wash); }
+  .p-jo   { color: var(--clay);   background: var(--clay-wash); }
+  .p-both { color: var(--slate);  background: var(--slate-wash); }
+
+  .recipe { display: flex; flex-direction: column; gap: 26px; }
+  .step { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .step-n {
+    font-family: var(--font-mono); font-size: 11px; color: var(--petrol);
+    border-top: 2px solid var(--petrol); padding-top: 6px; text-align: center;
+  }
+  .step-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+  .open-q { display: flex; flex-direction: column; gap: 14px; }
+  .q {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px;
+    align-items: start; padding-bottom: 14px; border-bottom: 1px solid var(--hairline);
+  }
+  .q:last-child { border-bottom: none; padding-bottom: 0; }
+  .q-mark { font-family: var(--font-mono); font-size: 11px; color: var(--clay); padding-top: 3px; }
+
+  footer {
+    margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--hairline);
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">IS484 · Team Finlytics · Alpha Norm</div>
+    <h1>Forecasting Engine — Architecture &amp; Team Guide</h1>
+    <p class="standfirst">
+      A Python library that does the forecasting, and a Streamlit skin that shows it.
+      This page is the contract between the two, and between the people writing them.
+    </p>
+    <div class="meta-row">
+      <span><b>Status</b> — approved, pending §11</span>
+      <span><b>Drafted</b> — 29 Jul 2026</span>
+      <span><b>Delivery</b> — 6 sprints, 24 Aug – 15 Nov 2026</span>
+    </div>
+  </header>
+
+  <div class="doc">
+
+    <nav class="toc">
+      <a href="#shape"><span class="toc-num">01</span>The shape</a>
+      <a href="#pipeline"><span class="toc-num">02</span>Pipeline &amp; ownership</a>
+      <a href="#contracts"><span class="toc-num">03</span>The three contracts</a>
+      <a href="#leak"><span class="toc-num">04</span>Leak-proofing</a>
+      <a href="#repo"><span class="toc-num">05</span>Repo layout</a>
+      <a href="#day1"><span class="toc-num">06</span>Day one setup</a>
+      <a href="#research"><span class="toc-num">07</span>How to do research</a>
+      <a href="#addmodel"><span class="toc-num">08</span>Adding a model</a>
+      <a href="#testing"><span class="toc-num">09</span>Testing</a>
+      <a href="#roadmap"><span class="toc-num">10</span>Roadmap</a>
+      <a href="#open"><span class="toc-num">11</span>Still undecided</a>
+    </nav>
+
+    <div class="body-col">
+
+      <section id="shape">
+        <h2><span class="h-num">01</span>The shape</h2>
+        <p>
+          Everything that computes lives in <code>src/forecasting_engine/</code>, an installable package
+          that never imports Streamlit. The dashboard in <code>app/</code> is a rendering layer over it —
+          it holds no maths.
+        </p>
+        <p>
+          This buys three things the proposal explicitly needs. A full backtest can run headlessly from
+          pytest or a CLI, which matters the week runtime becomes a problem. Every stage is unit-testable
+          against known inputs, which is what the functional test matrix deliverable actually requires.
+          And research notebooks import the library rather than reimplementing it, so the join logic that
+          causes look-ahead bias is written exactly once.
+        </p>
+        <p class="note">
+          One idea borrowed from a heavier architecture: a single frozen <code>RunConfig</code> determines
+          a run end to end, and its content hash is the run id. Reproducibility and caching both fall out
+          of that, without us building an orchestration engine.
+        </p>
+      </section>
+
+      <section id="pipeline">
+        <h2><span class="h-num">02</span>Pipeline &amp; ownership</h2>
+        <p>Ten stages, matching the To-Be workflow in the proposal. Colour is ownership, not importance.</p>
+
+        <div class="strip-scroll">
+          <div class="strip">
+            <div class="stage own-data"><div class="stage-n">01</div><div class="stage-t">Load &amp; validate</div><div class="stage-o">CSV → RawFrame<br>schema check</div></div>
+            <div class="stage own-data"><div class="stage-n">02</div><div class="stage-t">Quality report</div><div class="stage-o">gaps, dupes,<br>outliers, calendar</div></div>
+            <div class="stage own-data"><div class="stage-n">03</div><div class="stage-t">Align &amp; lag</div><div class="stage-o">→ FeaturePanel<br>the leak gate</div></div>
+            <div class="stage own-data"><div class="stage-n">04</div><div class="stage-t">Screen signals</div><div class="stage-o">univariate IC<br>top-k select</div></div>
+            <div class="stage own-model"><div class="stage-n">05</div><div class="stage-t">Fit forecasters</div><div class="stage-o">poly · FF5<br>XGB · LGBM</div></div>
+            <div class="stage own-model"><div class="stage-n">06</div><div class="stage-t">Walk-forward</div><div class="stage-o">purge + embargo<br>OOS only</div></div>
+            <div class="stage own-model"><div class="stage-n">07</div><div class="stage-t">Score &amp; gate</div><div class="stage-o">IC · RankIC<br>PBO · DSR</div></div>
+            <div class="stage"><div class="stage-n">08</div><div class="stage-t">Optimise</div><div class="stage-o">mean-variance<br>vs 50/50</div></div>
+            <div class="stage"><div class="stage-n">09</div><div class="stage-t">Risk</div><div class="stage-o">VaR · CVaR<br>MaxDD · MC</div></div>
+            <div class="stage"><div class="stage-n">10</div><div class="stage-t">Scenario</div><div class="stage-o">shock inputs<br>no refit</div></div>
+          </div>
+        </div>
+
+        <div class="legend">
+          <span><i class="swatch" style="background: var(--petrol)"></i> Raphael — data engineering</span>
+          <span><i class="swatch" style="background: var(--clay)"></i> Joash — models &amp; validation</span>
+          <span><i class="swatch" style="background: var(--slate)"></i> Shared, later sprints</span>
+        </div>
+
+        <p>
+          The seam is stage 3 → 4. Raphael owns everything that produces a <code>FeaturePanel</code>;
+          Joash owns everything that consumes one. Neither side needs the other to be finished, because
+          the type is frozen and synthetic fixtures exist on both sides of it from week one.
+        </p>
+      </section>
+
+      <section id="contracts">
+        <h2><span class="h-num">03</span>The three contracts</h2>
+        <p>Three types carry the whole system. If these are right, the rest is ordinary code.</p>
+
+        <div class="contracts">
+
+          <div class="contract">
+            <div class="contract-head">
+              <h3>FeaturePanel</h3>
+              <span class="owner-tag tag-data">produced by Raphael</span>
+              <span class="owner-tag tag-model">consumed by Joash</span>
+            </div>
+            <p>A dataset that is provably lag-safe. Frozen, and constructible only by <code>align_and_lag()</code>.</p>
+            <pre><code><span class="kw">@dataclass</span>(frozen=<span class="kw">True</span>)
+<span class="kw">class</span> FeaturePanel:
+    frame:      pd.DataFrame       <span class="cmt"># DatetimeIndex; signals + forward targets</span>
+    signals:    tuple[str, ...]    <span class="cmt"># feature columns</span>
+    targets:    tuple[str, ...]    <span class="cmt"># forward-return columns</span>
+    lag_days:   int                <span class="cmt"># observation lag actually applied (>= 1)</span>
+    provenance: Provenance         <span class="cmt"># source files, hashes, build time</span></code></pre>
+            <p class="note">
+              No fitting function anywhere in the codebase accepts a bare DataFrame. There is no
+              type-legal way to train on unlagged data.
+            </p>
+          </div>
+
+          <div class="contract">
+            <div class="contract-head">
+              <h3>Forecaster</h3>
+              <span class="owner-tag tag-model">Joash</span>
+            </div>
+            <p>Two methods to be a model, plus one to be interpretable.</p>
+            <pre><code><span class="kw">class</span> Forecaster(Protocol):
+    name: str
+
+    <span class="kw">def</span> fit(self, panel: FeaturePanel, train: pd.DatetimeIndex) -> <span class="kw">None</span>: ...
+    <span class="kw">def</span> predict(self, panel: FeaturePanel, idx: pd.DatetimeIndex) -> pd.Series: ...
+    <span class="kw">def</span> describe(self) -> ModelDescription: ...</code></pre>
+            <p>
+              <code>describe()</code> returns terms and coefficients. That is the sponsor's stated output
+              format, and it is why the polynomial stays the production baseline while tree models are
+              only ever comparators.
+            </p>
+          </div>
+
+          <div class="contract">
+            <div class="contract-head">
+              <h3>RunConfig</h3>
+              <span class="owner-tag tag-both">shared</span>
+            </div>
+            <p>Everything needed to reproduce a run. Hashes to the run id stored in DuckDB.</p>
+            <pre><code><span class="kw">@dataclass</span>(frozen=<span class="kw">True</span>)
+<span class="kw">class</span> RunConfig:
+    data:      DataSpec        <span class="cmt"># csv path + content hash, date range</span>
+    features:  FeatureSpec     <span class="cmt"># screening rule, top-k, horizon</span>
+    model:     ModelSpec       <span class="cmt"># type, hyperparams, or user polynomial</span>
+    split:     SplitSpec       <span class="cmt"># train len, test len, embargo days</span>
+    portfolio: PortfolioSpec
+    seed:      int</code></pre>
+            <p>
+              Same config in, same numbers out. Cache keys come free, which is the practical answer to
+              the sponsor's warning that degree-5 searches "might take a lot of time to run".
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+      <section id="leak">
+        <h2><span class="h-num">04</span>Leak-proofing, structurally</h2>
+        <p>
+          The proposal rates look-ahead bias High impact and calls for it to be
+          <em>structurally prevented</em>. Four rules, all enforced in code rather than by convention:
+        </p>
+        <ul>
+          <li>Every signal shifts by at least one day inside <code>align_and_lag()</code>. Nothing else may shift anything.</li>
+          <li>Slower series join with <code>merge_asof(direction="backward")</code>. Forward-fill only — <code>bfill</code> and <code>interpolate</code> are banned by a lint rule, not by memory.</li>
+          <li>Revised macro series carry their release date, not their reference date.</li>
+          <li>Walk-forward splits purge overlapping label windows and add an embargo gap.</li>
+        </ul>
+
+        <div class="wf">
+          <div class="wf-bar">
+            <div class="wf-seg wf-train">TRAIN 756d</div>
+            <div class="wf-seg wf-purge">EMB 5d</div>
+            <div class="wf-seg wf-test">TEST 63d</div>
+          </div>
+          <div class="wf-cap">→ window rolls forward, refits, repeats</div>
+        </div>
+
+        <p>
+          Overlapping 1–5 day forward returns leak across a naive split. The embargo is the gap that
+          stops it, and <code>PurgedWalkForward</code> is the only splitter in the codebase.
+        </p>
+        <p class="note">
+          Risk 2's own mitigation — "re-run with one extra day of lag; a feature that loses predictive
+          power signals leakage" — becomes a pytest that runs in CI. The same trick works for Risk 1:
+          a PBO above threshold fails the build rather than being noticed in a review.
+        </p>
+      </section>
+
+      <section id="repo">
+        <h2><span class="h-num">05</span>Repo layout</h2>
+        <pre><code>forecasting-engine/
+├── pyproject.toml              <span class="cmt"># uv-managed, single source of deps</span>
+├── docs/
+│   ├── data-specification.md   <span class="cmt"># THE CSV contract — a named deliverable</span>
+│   └── architecture.html       <span class="cmt"># this page</span>
+├── src/forecasting_engine/
+│   ├── config.py               <span class="cmt"># RunConfig and friends</span>
+│   ├── fixtures.py             <span class="cmt"># synthetic data generator (CLI)</span>
+│   ├── ingest/                 <span class="cmt">#  ── Raphael ──────────────────</span>
+│   │   ├── schema.py           <span class="cmt"># column contract (pandera)</span>
+│   │   ├── loader.py           <span class="cmt"># CSV → RawFrame</span>
+│   │   ├── quality.py          <span class="cmt"># → QualityReport</span>
+│   │   └── align.py            <span class="cmt"># → FeaturePanel   ★ the gate</span>
+│   ├── features/screening.py   <span class="cmt"># univariate IC screen</span>
+│   ├── models/                 <span class="cmt">#  ── Joash ────────────────────</span>
+│   │   ├── base.py             <span class="cmt"># Forecaster protocol</span>
+│   │   ├── polynomial.py       <span class="cmt"># user-supplied + derived (Lasso/ENet)</span>
+│   │   ├── famafrench.py       <span class="cmt"># statsmodels OLS benchmark</span>
+│   │   ├── boosted.py          <span class="cmt"># XGBoost / LightGBM + Optuna</span>
+│   │   └── symbolic.py         <span class="cmt"># PySR — stretch only</span>
+│   ├── validation/
+│   │   ├── splitters.py        <span class="cmt"># PurgedWalkForward, CPCV</span>
+│   │   ├── metrics.py          <span class="cmt"># IC, RankIC, RMSE, crash recall</span>
+│   │   └── overfitting.py      <span class="cmt"># PBO (CSCV), DSR</span>
+│   ├── portfolio/              <span class="cmt">#  ── shared, sprint 5 ─────────</span>
+│   │   ├── optimise.py         <span class="cmt"># PyPortfolioOpt mean-variance</span>
+│   │   └── performance.py      <span class="cmt"># Sharpe/Sortino/Calmar/MaxDD + NW t-stat</span>
+│   ├── risk/{tail,montecarlo}.py
+│   ├── scenario/shock.py       <span class="cmt"># re-predict without refit</span>
+│   ├── store/runs.py           <span class="cmt"># DuckDB persistence</span>
+│   └── pipeline.py             <span class="cmt"># RunConfig → RunResult</span>
+├── app/                        <span class="cmt">#  ── Streamlit, no maths ──────</span>
+│   ├── Home.py
+│   └── pages/1_Data.py … 5_Scenario.py
+├── notebooks/                  <span class="cmt"># research; outputs stripped on commit</span>
+├── tests/{unit,integration,fixtures}/
+└── .github/workflows/ci.yml    <span class="cmt"># pytest + ruff on every push</span></code></pre>
+        <p class="note">
+          A file past roughly 300 lines is doing too much and gets split. Each module should answer
+          three questions: what does it do, how do you call it, what does it depend on.
+        </p>
+      </section>
+
+      <section id="day1">
+        <h2><span class="h-num">06</span>Day one, for anyone joining</h2>
+        <div class="recipe">
+          <div class="step">
+            <div class="step-n">1</div>
+            <div class="step-body">
+              <h3>Clone and install</h3>
+              <pre><code>git clone git@github.com:&lt;org&gt;/forecasting-engine.git
+cd forecasting-engine
+uv sync                <span class="cmt"># creates .venv, installs everything, editable</span></code></pre>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-n">2</div>
+            <div class="step-body">
+              <h3>Prove it works</h3>
+              <pre><code>uv run pytest          <span class="cmt"># must be green before you touch anything</span></code></pre>
+              <p>If this is red on a fresh clone, that is a bug in <code>main</code> — say so in the group chat rather than working around it.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-n">3</div>
+            <div class="step-body">
+              <h3>Get data without having data</h3>
+              <pre><code>uv run python -m forecasting_engine.fixtures --years 10</code></pre>
+              <p>Writes synthetic CSVs matching <code>docs/data-specification.md</code> exactly — with deliberate gaps, duplicates and a fake crash, so the quality checks have something to catch. Real FactSet exports drop in later with zero code change.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-n">4</div>
+            <div class="step-body">
+              <h3>Run the dashboard</h3>
+              <pre><code>uv run streamlit run app/Home.py</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="research">
+        <h2><span class="h-num">07</span>How to do research in this</h2>
+        <p>
+          Notebooks are not banned, they are clients. The dependency runs one way: notebooks import
+          from <code>src/</code>, and nothing ever imports from a notebook.
+        </p>
+        <pre><code><span class="kw">%load_ext</span> autoreload
+<span class="kw">%autoreload</span> 2                <span class="cmt"># edit src/ in your editor, next cell picks it up</span>
+
+<span class="kw">from</span> forecasting_engine.ingest <span class="kw">import</span> load, align_and_lag
+<span class="kw">from</span> forecasting_engine.validation <span class="kw">import</span> PurgedWalkForward, rank_ic
+
+panel = align_and_lag(load(<span class="str">"data/raw/signals.csv"</span>))   <span class="cmt"># lag-safe, cached</span>
+folds = PurgedWalkForward(train=<span class="str">756</span>, test=<span class="str">63</span>, embargo=<span class="str">5</span>).split(panel)
+
+<span class="cmt"># everything from here is ordinary ad-hoc pandas. poke at it.</span>
+panel.frame[[<span class="str">"vix"</span>, <span class="str">"spx_fwd_5d"</span>]].rolling(<span class="str">60</span>).corr().plot()</code></pre>
+        <p>Three lines get you a leak-free, embargoed dataset. Everything after is as exploratory as you like.</p>
+        <h3>The promotion rule</h3>
+        <p>
+          If a cell produced a <b>finding</b>, it stays in the notebook. If it produced a
+          <b>capability</b> — anything you would run a second time — it moves into <code>src/</code>
+          with a test. That is the whole ceremony.
+        </p>
+      </section>
+
+      <section id="addmodel">
+        <h2><span class="h-num">08</span>Adding a model — the twenty-line version</h2>
+        <p>This is the part that matters most for Joash. A new idea costs one file:</p>
+        <pre><code><span class="cmt"># src/forecasting_engine/models/my_idea.py</span>
+<span class="kw">class</span> MyIdea:
+    name = <span class="str">"ridge-degree3"</span>
+
+    <span class="kw">def</span> fit(self, panel, train):
+        X, y = panel.matrix(train)
+        self._m = Ridge(alpha=<span class="str">1.0</span>).fit(PolynomialFeatures(<span class="str">3</span>).fit_transform(X), y)
+
+    <span class="kw">def</span> predict(self, panel, idx):
+        X, _ = panel.matrix(idx)
+        <span class="kw">return</span> pd.Series(self._m.predict(...), index=idx)
+
+    <span class="kw">def</span> describe(self):
+        <span class="kw">return</span> ModelDescription(terms=..., coefficients=self._m.coef_)</code></pre>
+        <p>
+          Register it, and it is automatically evaluated on the same folds, the same IC and Rank IC,
+          the same PBO and DSR, and appears in the comparison table beside the polynomial baseline,
+          Fama-French and XGBoost. You never write evaluation code. You write models.
+        </p>
+        <p class="note">
+          This is not hygiene, it is the deliverable. Gap #1 in the proposal is that there is
+          <em>"no structured process to derive, compare and validate alternative specifications against
+          a consistent benchmark."</em> One shared harness behind one protocol is that process. Scoring
+          each model in its own notebook would rebuild the exact gap we were hired to close.
+        </p>
+      </section>
+
+      <section id="testing">
+        <h2><span class="h-num">09</span>Testing</h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Layer</th><th>What it proves</th><th>Runs</th></tr></thead>
+            <tbody>
+              <tr><td><b>Unit</b></td><td>Schema validators, lag arithmetic, metric maths checked against hand-computed values on tiny frames</td><td class="num">every push</td></tr>
+              <tr><td><b>Property</b></td><td>The leak audits: extra-lag re-run, embargo boundary, no target column reachable as a feature</td><td class="num">every push</td></tr>
+              <tr><td><b>Integration</b></td><td>A full <code>RunConfig</code> → <code>RunResult</code> pass over fixtures; polynomial path is bit-identical across runs</td><td class="num">every push</td></tr>
+              <tr><td><b>Functional</b></td><td>Dashboard journeys traced back to the user stories — this is the test matrix deliverable</td><td class="num">pre-UAT</td></tr>
+              <tr><td><b>Performance</b></td><td>Wall-clock for degree-5 search and Monte Carlo, recorded so Risk 8 is measured not guessed</td><td class="num">weekly</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Determinism is testable and therefore tested: the polynomial path must return identical
+          numbers for identical inputs. ML comparators are seeded and asserted within tolerance,
+          which matches what the sponsor already accepted.
+        </p>
+      </section>
+
+      <section id="roadmap">
+        <h2><span class="h-num">10</span>Roadmap</h2>
+        <p>
+          Today is 29 July. Sprint 1 opens 24 August. That gives roughly three weeks of runway before
+          the clock starts — enough to have the seam built and Joash unblocked on day one.
+        </p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Phase</th><th>Dates</th><th>Ships</th><th>Lead</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="num">Phase 0</td><td class="num">now – 23 Aug</td>
+                <td>Repo, pyproject, CI, data specification doc, fixture generator, <code>FeaturePanel</code> frozen</td>
+                <td><span class="pill p-you">Raphael</span></td>
+              </tr>
+              <tr>
+                <td class="num">Sprint 1</td><td class="num">24 Aug – 6 Sep</td>
+                <td>Ingest, quality report, align &amp; lag complete with tests. Fama-French baseline stub</td>
+                <td><span class="pill p-you">Raphael</span></td>
+              </tr>
+              <tr>
+                <td class="num">Sprint 2</td><td class="num">7 – 20 Sep</td>
+                <td>Signal screening (Raphael). Polynomial fit + user-supplied path, <code>PurgedWalkForward</code> (Joash)</td>
+                <td><span class="pill p-both">both</span></td>
+              </tr>
+              <tr>
+                <td class="num">Sprint 3</td><td class="num">21 Sep – 4 Oct</td>
+                <td>IC/RankIC/RMSE, PBO, DSR, crash recall. Dashboard shell. <b>UAT 1</b></td>
+                <td><span class="pill p-both">both</span></td>
+              </tr>
+              <tr>
+                <td class="num">Sprint 4</td><td class="num">5 – 18 Oct</td>
+                <td>XGBoost / LightGBM + Optuna. Model comparison view. <b>UAT 2</b></td>
+                <td><span class="pill p-jo">Joash</span></td>
+              </tr>
+              <tr>
+                <td class="num">Sprint 5</td><td class="num">19 Oct – 1 Nov</td>
+                <td>Mean-variance optimisation, performance metrics, NW t-stat, VaR/CVaR</td>
+                <td><span class="pill p-both">both</span></td>
+              </tr>
+              <tr>
+                <td class="num">Sprint 6</td><td class="num">2 – 15 Nov</td>
+                <td>Scenario shocks, Monte Carlo, DuckDB run history, handover docs. <b>UAT 3</b></td>
+                <td><span class="pill p-both">both</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">
+          One deviation from the proposal's Gantt worth flagging to the team: it schedules portfolio
+          optimisation earlier. Moving it to Sprint 5 keeps the forecasting engine ahead of UAT 2,
+          which is where sponsor feedback is most expensive to receive late.
+        </p>
+      </section>
+
+      <section id="open">
+        <h2><span class="h-num">11</span>Still undecided</h2>
+        <p>These block specific pieces of work and are worth resolving with Dr. Burlacu early. Each has a working assumption so Phase 0 is not blocked.</p>
+        <div class="open-q">
+          <div class="q">
+            <div class="q-mark">Q1</div>
+            <div>
+              <h3>Which bond index?</h3>
+              <p>The proposal defers this to Sprint 1 with Bloomberg Global Aggregate as the working assumption. It affects the data spec, so it wants answering during Phase 0, not Sprint 1. <b>Assumed:</b> Bloomberg Global Aggregate, column named generically so a swap is a data change.</p>
+            </div>
+          </div>
+          <div class="q">
+            <div class="q-mark">Q2</div>
+            <div>
+              <h3>What is the forecast horizon?</h3>
+              <p>"Short-horizon" is never pinned down. One day and five days imply different embargo lengths and different target construction. <b>Assumed:</b> 5-day forward return, horizon held as a config field so 1-day is a one-line change. Embargo defaults to horizon + 1.</p>
+            </div>
+          </div>
+          <div class="q">
+            <div class="q-mark">Q3</div>
+            <div>
+              <h3>How is a crash defined?</h3>
+              <p>Crash recall is a first-class success metric, so the label needs a threshold. <b>Assumed:</b> forward return below the 5th percentile of the training window, with GFC / COVID / 2022 also available as dated windows.</p>
+            </div>
+          </div>
+          <div class="q">
+            <div class="q-mark">Q4</div>
+            <div>
+              <h3>Is PySR in scope?</h3>
+              <p>It appears in the tools table but nowhere in the sprint plan, and it carries a Julia dependency. <b>Assumed:</b> stretch only, cut early if Sprint 4 is tight.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <footer>
+    Team Finlytics · IS484 IS Project Experience (FinTech) · Singapore Management University
+  </footer>
+
+</div>
