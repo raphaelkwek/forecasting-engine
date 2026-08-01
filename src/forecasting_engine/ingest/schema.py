@@ -54,30 +54,43 @@ REQUIRED_COLUMNS: tuple[str, ...] = (DATE_COLUMN,) + tuple(c.name for c in COLUM
 #: Issue kinds that make a file unusable rather than merely imperfect.
 BLOCKING_KINDS: frozenset[str] = frozenset({"missing_column", "unparseable_date", "non_numeric"})
 
+_BY_NAME: dict[str, ColumnSpec] = {spec.name: spec for spec in COLUMNS}
+
 
 def validate(frame: pd.DataFrame) -> list[SchemaIssue]:
-    """Return every contract violation in ``frame``. An empty list means valid."""
+    """Return every contract violation in ``frame``. An empty list means valid.
+
+    Every column is checked independently, so one missing column never hides a
+    problem in another. A user fixing a malformed file should see the whole list
+    at once rather than discovering it one round at a time.
+    """
     issues: list[SchemaIssue] = []
 
     missing = [name for name in REQUIRED_COLUMNS if name not in frame.columns]
-    issues.extend(
-        SchemaIssue("missing_column", name, f"required column {name!r} is absent")
-        for name in missing
-    )
-    if DATE_COLUMN in missing:
-        return issues
+    issues.extend(SchemaIssue("missing_column", name, _absent_detail(name)) for name in missing)
 
-    issues.extend(_date_issues(frame[DATE_COLUMN]))
+    if DATE_COLUMN not in missing:
+        issues.extend(_date_issues(frame[DATE_COLUMN]))
     for spec in COLUMNS:
         if spec.name in frame.columns:
             issues.extend(_numeric_issues(frame[spec.name], spec))
     return issues
 
 
+def _absent_detail(name: str) -> str:
+    """Name the series as well as the column, since the reader may not know the code."""
+    spec = _BY_NAME.get(name)
+    if spec is None or not spec.description:
+        return f"required column {name!r} is absent"
+    return f"required column {name!r} ({spec.description}) is absent"
+
+
 def _date_issues(raw: pd.Series) -> list[SchemaIssue]:
     issues: list[SchemaIssue] = []
     dates = pd.to_datetime(raw, errors="coerce")
 
+    # As with numeric columns, a blank cell is missing data rather than a bad
+    # value. Subtracting the original NaN count leaves only genuine parse errors.
     unparseable = int(dates.isna().sum() - raw.isna().sum())
     if unparseable > 0:
         issues.append(

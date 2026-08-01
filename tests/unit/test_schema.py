@@ -71,3 +71,60 @@ def test_blank_cell_is_not_a_non_numeric_error():
 def test_signal_columns_exclude_prices():
     assert "spx_close" not in schema.SIGNAL_COLUMNS
     assert "vix" in schema.SIGNAL_COLUMNS
+
+
+def test_missing_date_does_not_hide_other_problems():
+    frame = valid_frame().drop(columns=["date"])
+    frame.loc[1, "vix"] = 300.0
+    kinds = {i.kind for i in schema.validate(frame)}
+    assert kinds == {"missing_column", "out_of_range"}
+
+
+def test_missing_column_detail_names_the_series():
+    frame = valid_frame().drop(columns=["credit_spread_hy"])
+    detail = schema.validate(frame)[0].detail
+    assert "credit_spread_hy" in detail
+    assert "HY OAS" in detail
+
+
+def test_unparseable_date_is_reported():
+    frame = valid_frame()
+    frame.loc[1, "date"] = "not-a-date"
+    issues = [i for i in schema.validate(frame) if i.kind == "unparseable_date"]
+    assert len(issues) == 1
+    assert issues[0].count == 1
+
+
+def test_value_above_the_ceiling_is_out_of_range():
+    frame = valid_frame()
+    frame.loc[1, "vix"] = 300.0
+    issues = [i for i in schema.validate(frame) if i.kind == "out_of_range"]
+    assert len(issues) == 1
+    assert "above" in issues[0].detail
+
+
+def test_multiple_issues_accumulate():
+    frame = valid_frame()
+    frame.loc[1, "vix"] = -3.0
+    frame["term_spread"] = frame["term_spread"].astype(object)
+    frame.loc[2, "term_spread"] = "oops"
+    kinds = {i.kind for i in schema.validate(frame)}
+    assert {"out_of_range", "non_numeric"} <= kinds
+
+
+def test_blocking_keeps_only_unusable_issues():
+    issues = [
+        schema.SchemaIssue("missing_column", "vix", "absent"),
+        schema.SchemaIssue("duplicate_date", "date", "repeated"),
+        schema.SchemaIssue("non_numeric", "vix", "bad"),
+    ]
+    assert [i.kind for i in schema.blocking(issues)] == ["missing_column", "non_numeric"]
+
+
+def test_repairable_issues_are_not_blocking():
+    issues = [
+        schema.SchemaIssue("duplicate_date", "date", "repeated"),
+        schema.SchemaIssue("unsorted_dates", "date", "unsorted"),
+        schema.SchemaIssue("out_of_range", "vix", "high"),
+    ]
+    assert schema.blocking(issues) == []

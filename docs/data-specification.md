@@ -30,6 +30,21 @@ All columns are required.
 Percent columns are expressed in percentage points: a 3.5% spread is `3.5`, not
 `0.035`.
 
+## How violations are treated
+
+Not every violation makes a file unusable. There are two classes.
+
+**Rejected.** A missing column, an unparseable date, or a non-numeric value in a
+numeric column. The file cannot be interpreted, so it is refused outright.
+
+**Repaired and reported.** Out-of-order rows are sorted. Duplicate dates are
+resolved by keeping the last occurrence, on the assumption that a repeated date
+is a revision rather than a mistake. Values outside the ranges above are flagged
+but retained — a genuine market dislocation looks a lot like an outlier, and
+dropping it would hide exactly the events the model most needs to see.
+
+No repair is silent. Every one is counted in the data quality report.
+
 ## What the system does with this file
 
 Forward return targets are **derived, never supplied**. `spx_fwd_5d` and
