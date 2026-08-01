@@ -108,12 +108,23 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+# docs/ holds illustrative snippets that reference types defined elsewhere, and
+# notebooks/ holds research. Ruff formats Markdown code fences and .ipynb files
+# natively, so without these both would gate CI on prose and exploration.
+extend-exclude = ["docs", "notebooks"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ```
 
 Modelling libraries are deliberately absent. Each sprint adds only what it uses.
+
+The exclusions are not optional. Ruff 0.16 formats Python code fences inside
+Markdown and lints `.ipynb` natively, so a `ruff format --check` gate without
+them fails on the design spec's deliberately column-aligned dataclasses, and
+later on any research notebook. `force-exclude` extends the same protection to
+explicitly-targeted invocations such as a pre-commit hook or format-on-save.
 
 - [ ] **Step 3: Write `.gitignore`**
 

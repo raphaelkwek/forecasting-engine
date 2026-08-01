@@ -27,7 +27,11 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-extend-exclude = ["docs"]
+# docs/ holds illustrative snippets that reference types defined elsewhere, and
+# notebooks/ holds research. Ruff formats Markdown code fences and .ipynb files
+# natively, so without these both would gate CI on prose and exploration.
+extend-exclude = ["docs", "notebooks"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
