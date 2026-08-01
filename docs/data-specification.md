@@ -43,7 +43,9 @@ is a revision rather than a mistake. Values outside the ranges above are flagged
 but retained — a genuine market dislocation looks a lot like an outlier, and
 dropping it would hide exactly the events the model most needs to see.
 
-No repair is silent. Every one is counted in the data quality report.
+No repair is silent. Every one is reported with a count of the rows affected.
+The dashboard view that presents these together as a data quality report is
+scheduled for a later sprint and does not exist yet.
 
 ## What the system does with this file
 

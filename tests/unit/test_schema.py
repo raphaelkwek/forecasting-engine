@@ -83,8 +83,9 @@ def test_missing_date_does_not_hide_other_problems():
 def test_missing_column_detail_names_the_series():
     frame = valid_frame().drop(columns=["credit_spread_hy"])
     detail = schema.validate(frame)[0].detail
+    spec = next(c for c in schema.COLUMNS if c.name == "credit_spread_hy")
     assert "credit_spread_hy" in detail
-    assert "HY OAS" in detail
+    assert spec.description in detail
 
 
 def test_unparseable_date_is_reported():

@@ -287,7 +287,9 @@ is a revision rather than a mistake. Values outside the ranges above are flagged
 but retained — a genuine market dislocation looks a lot like an outlier, and
 dropping it would hide exactly the events the model most needs to see.
 
-No repair is silent. Every one is counted in the data quality report.
+No repair is silent. Every one is reported with a count of the rows affected.
+The dashboard view that presents these together as a data quality report is
+scheduled for a later sprint and does not exist yet.
 
 ## What the system does with this file
 
@@ -430,8 +432,9 @@ def test_missing_date_does_not_hide_other_problems():
 def test_missing_column_detail_names_the_series():
     frame = valid_frame().drop(columns=["credit_spread_hy"])
     detail = schema.validate(frame)[0].detail
+    spec = next(c for c in schema.COLUMNS if c.name == "credit_spread_hy")
     assert "credit_spread_hy" in detail
-    assert "HY OAS" in detail
+    assert spec.description in detail
 
 
 def test_unparseable_date_is_reported():
@@ -552,8 +555,6 @@ REQUIRED_COLUMNS: tuple[str, ...] = (DATE_COLUMN,) + tuple(c.name for c in COLUM
 #: Issue kinds that make a file unusable rather than merely imperfect.
 BLOCKING_KINDS: frozenset[str] = frozenset({"missing_column", "unparseable_date", "non_numeric"})
 
-_BY_NAME: dict[str, ColumnSpec] = {spec.name: spec for spec in COLUMNS}
-
 
 def validate(frame: pd.DataFrame) -> list[SchemaIssue]:
     """Return every contract violation in ``frame``. An empty list means valid.
@@ -577,7 +578,7 @@ def validate(frame: pd.DataFrame) -> list[SchemaIssue]:
 
 def _absent_detail(name: str) -> str:
     """Name the series as well as the column, since the reader may not know the code."""
-    spec = _BY_NAME.get(name)
+    spec = next((c for c in COLUMNS if c.name == name), None)
     if spec is None or not spec.description:
         return f"required column {name!r} is absent"
     return f"required column {name!r} ({spec.description}) is absent"
