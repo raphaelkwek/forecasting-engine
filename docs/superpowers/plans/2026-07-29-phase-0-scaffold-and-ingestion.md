@@ -278,8 +278,8 @@ Percent columns are expressed in percentage points: a 3.5% spread is `3.5`, not
 
 Forward return targets are **derived, never supplied**. `spx_fwd_5d` and
 `agg_fwd_5d` are computed from `spx_close` and `agg_close`. Do not add target
-columns to the input — they will be rejected as unknown columns are ignored and
-a supplied target would silently go unused.
+columns to the input. Unknown columns are ignored rather than rejected, so a
+supplied target would be silently discarded rather than used.
 
 Every signal column is shifted forward by at least one trading day before any
 model sees it, so a row dated `t` carries the signal value observed at `t-1`.
