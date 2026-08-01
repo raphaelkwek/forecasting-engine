@@ -20,6 +20,16 @@ Two implementation-time decisions differ from the spec text. Both are noted here
 
 2. **The `bfill`/`interpolate` ban is a test, not a lint rule.** The spec says "banned by a lint rule". Ruff has no rule for banning specific pandas methods. A source-scanning pytest is simpler, has no plugin dependency, and fails loudly in CI with a message that explains *why*.
 
+## Working rules for every task
+
+- Work on the `phase-0-ingestion` branch, never directly on `main`.
+- Before every commit, run `uv run ruff format .` and include the result. CI runs
+  `ruff format --check` and will fail otherwise. The code blocks in this plan are
+  written for readability and are not guaranteed to match the formatter's output
+  byte for byte — let the formatter win.
+- Run `uv run pytest -v` and read the output. A task is not done because the code
+  was written; it is done because the tests ran and passed.
+
 ## File structure
 
 | File | Responsibility |
@@ -94,7 +104,6 @@ packages = ["src/forecasting_engine"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
 
 [tool.ruff]
 line-length = 100
@@ -162,7 +171,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 jobs:
@@ -173,11 +181,26 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --all-extras
+      - name: Install
+        run: uv sync --all-extras --locked
       - name: Lint
         run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
       - name: Test
         run: uv run pytest -v
+```
+
+`on: push:` with no branch filter is deliberate. Work happens on feature
+branches, so filtering to `main` would mean no commit is ever checked until a
+pull request exists. `--locked` makes CI fail loudly if `pyproject.toml` and
+`uv.lock` have drifted rather than silently re-resolving.
+
+Also create `.python-version` so both developers and CI resolve the same
+interpreter (uv downloads it automatically if absent):
+
+```
+3.13
 ```
 
 - [ ] **Step 7: Verify lint passes locally**
@@ -193,7 +216,7 @@ Expected: `All checks passed!`
 ```bash
 git add pyproject.toml .gitignore .github/ src/ tests/ uv.lock
 git commit -m "chore: project scaffold with uv, pytest and ruff"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -279,7 +302,7 @@ defect-free file.
 ```bash
 git add docs/data-specification.md
 git commit -m "docs: CSV data specification"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -528,7 +551,7 @@ Expected: `9 passed`
 ```bash
 git add src/forecasting_engine/ingest/ tests/unit/test_schema.py
 git commit -m "feat: column contract and schema validator"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -740,7 +763,7 @@ Expected: `wrote 2523 rows to data/raw/signals.csv` — 2520 business days plus 
 ```bash
 git add src/forecasting_engine/fixtures.py tests/unit/test_fixtures.py
 git commit -m "feat: synthetic data generator with deliberate defects"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -963,7 +986,7 @@ Expected: `8 passed`
 ```bash
 git add src/forecasting_engine/ingest/provenance.py src/forecasting_engine/ingest/loader.py tests/unit/test_loader.py
 git commit -m "feat: CSV loader with content hashing and schema enforcement"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -981,6 +1004,8 @@ The load-bearing piece. Everything downstream depends on this being right.
 `tests/unit/test_panel.py`:
 
 ```python
+from dataclasses import FrozenInstanceError
+
 import pandas as pd
 import pytest
 
@@ -1051,7 +1076,7 @@ def test_non_datetime_index_is_rejected():
 
 def test_panel_is_immutable():
     panel = make_panel()
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         panel.lag_days = 2
 
 
@@ -1183,7 +1208,7 @@ Expected: `12 passed`
 ```bash
 git add src/forecasting_engine/ingest/panel.py tests/unit/test_panel.py
 git commit -m "feat: FeaturePanel with self-validating lag invariants"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -1424,7 +1449,7 @@ Note: `from datetime import UTC` requires Python 3.11+, which `requires-python` 
 ```bash
 git add src/forecasting_engine/ingest/align.py tests/unit/test_align.py
 git commit -m "feat: align_and_lag, the single look-ahead prevention gate"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -1589,7 +1614,7 @@ Expected: `7 passed`
 ```bash
 git add tests/unit/test_no_leakage.py
 git commit -m "test: structural guards against look-ahead bias"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -1605,6 +1630,8 @@ git push origin main
 `tests/unit/test_config.py`:
 
 ```python
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from forecasting_engine.config import DataSpec, FeatureSpec, ModelSpec, RunConfig, SplitSpec
@@ -1647,7 +1674,7 @@ def test_run_id_is_a_short_hex_string():
 
 def test_config_is_immutable():
     config = RunConfig(data=DATA)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         config.seed = 1
 
 
@@ -1778,7 +1805,7 @@ Expected: `10 passed`
 ```bash
 git add src/forecasting_engine/config.py tests/unit/test_config.py
 git commit -m "feat: RunConfig with content-hash run identity"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
@@ -1949,7 +1976,7 @@ Expected: `All checks passed!` and `71 passed` — 9 schema, 7 fixtures, 8 loade
 ```bash
 git add tests/integration/ README.md
 git commit -m "test: end-to-end ingestion pipeline; docs: README for new contributors"
-git push origin main
+git push origin phase-0-ingestion
 ```
 
 ---
