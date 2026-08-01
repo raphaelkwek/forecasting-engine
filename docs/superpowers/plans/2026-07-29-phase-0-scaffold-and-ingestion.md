@@ -552,7 +552,6 @@ REQUIRED_COLUMNS: tuple[str, ...] = (DATE_COLUMN,) + tuple(c.name for c in COLUM
 #: Issue kinds that make a file unusable rather than merely imperfect.
 BLOCKING_KINDS: frozenset[str] = frozenset({"missing_column", "unparseable_date", "non_numeric"})
 
-
 _BY_NAME: dict[str, ColumnSpec] = {spec.name: spec for spec in COLUMNS}
 
 
