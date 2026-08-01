@@ -274,6 +274,21 @@ All columns are required.
 Percent columns are expressed in percentage points: a 3.5% spread is `3.5`, not
 `0.035`.
 
+## How violations are treated
+
+Not every violation makes a file unusable. There are two classes.
+
+**Rejected.** A missing column, an unparseable date, or a non-numeric value in a
+numeric column. The file cannot be interpreted, so it is refused outright.
+
+**Repaired and reported.** Out-of-order rows are sorted. Duplicate dates are
+resolved by keeping the last occurrence, on the assumption that a repeated date
+is a revision rather than a mistake. Values outside the ranges above are flagged
+but retained — a genuine market dislocation looks a lot like an outlier, and
+dropping it would hide exactly the events the model most needs to see.
+
+No repair is silent. Every one is counted in the data quality report.
+
 ## What the system does with this file
 
 Forward return targets are **derived, never supplied**. `spx_fwd_5d` and
@@ -403,6 +418,63 @@ def test_blank_cell_is_not_a_non_numeric_error():
 def test_signal_columns_exclude_prices():
     assert "spx_close" not in schema.SIGNAL_COLUMNS
     assert "vix" in schema.SIGNAL_COLUMNS
+
+
+def test_missing_date_does_not_hide_other_problems():
+    frame = valid_frame().drop(columns=["date"])
+    frame.loc[1, "vix"] = 300.0
+    kinds = {i.kind for i in schema.validate(frame)}
+    assert kinds == {"missing_column", "out_of_range"}
+
+
+def test_missing_column_detail_names_the_series():
+    frame = valid_frame().drop(columns=["credit_spread_hy"])
+    detail = schema.validate(frame)[0].detail
+    assert "credit_spread_hy" in detail
+    assert "HY OAS" in detail
+
+
+def test_unparseable_date_is_reported():
+    frame = valid_frame()
+    frame.loc[1, "date"] = "not-a-date"
+    issues = [i for i in schema.validate(frame) if i.kind == "unparseable_date"]
+    assert len(issues) == 1
+    assert issues[0].count == 1
+
+
+def test_value_above_the_ceiling_is_out_of_range():
+    frame = valid_frame()
+    frame.loc[1, "vix"] = 300.0
+    issues = [i for i in schema.validate(frame) if i.kind == "out_of_range"]
+    assert len(issues) == 1
+    assert "above" in issues[0].detail
+
+
+def test_multiple_issues_accumulate():
+    frame = valid_frame()
+    frame.loc[1, "vix"] = -3.0
+    frame["term_spread"] = frame["term_spread"].astype(object)
+    frame.loc[2, "term_spread"] = "oops"
+    kinds = {i.kind for i in schema.validate(frame)}
+    assert {"out_of_range", "non_numeric"} <= kinds
+
+
+def test_blocking_keeps_only_unusable_issues():
+    issues = [
+        schema.SchemaIssue("missing_column", "vix", "absent"),
+        schema.SchemaIssue("duplicate_date", "date", "repeated"),
+        schema.SchemaIssue("non_numeric", "vix", "bad"),
+    ]
+    assert [i.kind for i in schema.blocking(issues)] == ["missing_column", "non_numeric"]
+
+
+def test_repairable_issues_are_not_blocking():
+    issues = [
+        schema.SchemaIssue("duplicate_date", "date", "repeated"),
+        schema.SchemaIssue("unsorted_dates", "date", "unsorted"),
+        schema.SchemaIssue("out_of_range", "vix", "high"),
+    ]
+    assert schema.blocking(issues) == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -481,29 +553,43 @@ REQUIRED_COLUMNS: tuple[str, ...] = (DATE_COLUMN,) + tuple(c.name for c in COLUM
 BLOCKING_KINDS: frozenset[str] = frozenset({"missing_column", "unparseable_date", "non_numeric"})
 
 
+_BY_NAME: dict[str, ColumnSpec] = {spec.name: spec for spec in COLUMNS}
+
+
 def validate(frame: pd.DataFrame) -> list[SchemaIssue]:
-    """Return every contract violation in ``frame``. An empty list means valid."""
+    """Return every contract violation in ``frame``. An empty list means valid.
+
+    Every column is checked independently, so one missing column never hides a
+    problem in another. A user fixing a malformed file should see the whole list
+    at once rather than discovering it one round at a time.
+    """
     issues: list[SchemaIssue] = []
 
     missing = [name for name in REQUIRED_COLUMNS if name not in frame.columns]
-    issues.extend(
-        SchemaIssue("missing_column", name, f"required column {name!r} is absent")
-        for name in missing
-    )
-    if DATE_COLUMN in missing:
-        return issues
+    issues.extend(SchemaIssue("missing_column", name, _absent_detail(name)) for name in missing)
 
-    issues.extend(_date_issues(frame[DATE_COLUMN]))
+    if DATE_COLUMN not in missing:
+        issues.extend(_date_issues(frame[DATE_COLUMN]))
     for spec in COLUMNS:
         if spec.name in frame.columns:
             issues.extend(_numeric_issues(frame[spec.name], spec))
     return issues
 
 
+def _absent_detail(name: str) -> str:
+    """Name the series as well as the column, since the reader may not know the code."""
+    spec = _BY_NAME.get(name)
+    if spec is None or not spec.description:
+        return f"required column {name!r} is absent"
+    return f"required column {name!r} ({spec.description}) is absent"
+
+
 def _date_issues(raw: pd.Series) -> list[SchemaIssue]:
     issues: list[SchemaIssue] = []
     dates = pd.to_datetime(raw, errors="coerce")
 
+    # As with numeric columns, a blank cell is missing data rather than a bad
+    # value. Subtracting the original NaN count leaves only genuine parse errors.
     unparseable = int(dates.isna().sum() - raw.isna().sum())
     if unparseable > 0:
         issues.append(
