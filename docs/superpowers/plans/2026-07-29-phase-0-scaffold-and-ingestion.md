@@ -2078,6 +2078,343 @@ git push origin phase-0-ingestion
 
 ---
 
+---
+
+### Task 11: Free-data puller and a real-data ingest check
+
+Synthetic fixtures test the machinery. They cannot test whether the pipeline
+survives contact with real vendor data — ragged start dates, holiday calendars,
+missing-value markers. This task closes that gap while it is still cheap.
+
+**What a probe of the FRED endpoints already established** (run 2026-08-01, so
+the numbers will drift):
+
+| Series | FRED id | History available |
+|---|---|---|
+| S&P 500 | `SP500` | from 2016-08-01 — FRED truncates to ~10 years |
+| VIX | `VIXCLS` | from 1990 |
+| US HY OAS | `BAMLH0A0HYM2` | **from 2023-08-01 — only ~3 years** |
+| US IG OAS | `BAMLC0A0CM` | **from 2023-08-01 — only ~3 years** |
+| 10y breakeven | `T10YIE` | from 2003 |
+| 10y / 2y Treasury | `DGS10`, `DGS2` | from 1962 / 1976 |
+
+Two consequences the team needs to know now, not in October:
+
+1. **The complete free panel is about three years long**, limited by the ICE
+   BofA credit spread series. It contains neither the COVID crash nor the 2022
+   bond selloff. Risk 3's mitigation — sizing the window to include those
+   stresses — is therefore **not achievable on free data**. This makes Risk 7
+   (institutional data access) a load-bearing dependency rather than a
+   contingency, and is worth raising with the sponsor with these numbers
+   attached.
+2. **Two schema columns have no free source at all.** `agg_close` (Bloomberg
+   Global Aggregate) and `fx_impl_vol` (G7 FX implied volatility) require
+   FactSet or Bloomberg.
+
+The header is `observation_date`, not the older `DATE`. No `.` missing-value
+markers appeared in the series probed, but FRED has historically used them, so
+parse defensively.
+
+**Files:**
+- Create: `src/forecasting_engine/sources/__init__.py`
+- Create: `src/forecasting_engine/sources/fred.py`
+- Modify: `pyproject.toml` (add a `network` pytest marker, deselected by default)
+- Test: `tests/unit/test_fred_coverage.py` (offline, always runs)
+- Test: `tests/integration/test_real_data.py` (network, deselected by default)
+
+- [ ] **Step 1: Add the network marker to `pyproject.toml`**
+
+Replace the `[tool.pytest.ini_options]` section with:
+
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["network: reaches the public internet; deselected unless asked for"]
+addopts = "-m 'not network'"
+```
+
+CI stays hermetic and fast. To run the real-data check deliberately:
+`uv run pytest -m network -v`.
+
+- [ ] **Step 2: Write the failing offline test**
+
+`tests/unit/test_fred_coverage.py`:
+
+```python
+import pandas as pd
+
+from forecasting_engine.ingest import schema
+from forecasting_engine.sources import fred
+
+
+def ragged_frame() -> pd.DataFrame:
+    index = pd.bdate_range("2024-01-01", periods=6)
+    return pd.DataFrame(
+        {
+            "vix": [15.0, 16.0, 17.0, 18.0, 19.0, 20.0],
+            "spx_close": [None, None, 100.0, 101.0, 102.0, 103.0],
+            "term_spread": [1.0, 1.1, 1.2, 1.3, None, 1.5],
+        },
+        index=index,
+    )
+
+
+def test_coverage_reports_each_column_start():
+    starts = fred.coverage(ragged_frame()).starts
+    assert starts["vix"] == "2024-01-01"
+    assert starts["spx_close"] == "2024-01-03"
+
+
+def test_complete_panel_begins_at_the_latest_start():
+    assert fred.coverage(ragged_frame()).complete_from == "2024-01-03"
+
+
+def test_complete_rows_ignores_interior_gaps():
+    # spx_close starts on the 3rd, and term_spread has a hole on the 5th, so
+    # only three of the four remaining rows are complete.
+    assert fred.coverage(ragged_frame()).complete_rows == 3
+
+
+def test_coverage_of_an_empty_frame_is_reported_not_crashed():
+    empty = pd.DataFrame(index=pd.DatetimeIndex([], name="date"))
+    result = fred.coverage(empty)
+    assert result.complete_from is None
+    assert result.complete_rows == 0
+
+
+def test_unavailable_columns_are_absent_from_every_free_source():
+    sourced = set(fred.DIRECT) | {"term_spread"}
+    required = set(schema.REQUIRED_COLUMNS) - {schema.DATE_COLUMN}
+    assert set(fred.UNAVAILABLE) == required - sourced
+
+
+def test_every_sourced_column_is_actually_in_the_schema():
+    for name in fred.DIRECT:
+        assert name in schema.REQUIRED_COLUMNS
+```
+
+- [ ] **Step 3: Run it and watch it fail**
+
+Run: `uv run pytest tests/unit/test_fred_coverage.py -v`
+Expected: `ModuleNotFoundError: No module named 'forecasting_engine.sources'`
+
+- [ ] **Step 4: Write the implementation**
+
+`src/forecasting_engine/sources/__init__.py`:
+
+```python
+"""Adapters that turn public data sources into the documented CSV schema."""
+```
+
+`src/forecasting_engine/sources/fred.py`:
+
+```python
+"""Pull the freely available subset of the signal schema from FRED.
+
+FRED data is public domain and needs no API key, so this runs on any machine
+without an institutional licence. It deliberately cannot produce a complete
+file: ``UNAVAILABLE`` lists the columns with no free equivalent. That gap is the
+point — running this shows exactly which columns depend on FactSet or Bloomberg
+access, and how little history the free sources actually cover.
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
+
+from forecasting_engine.ingest.schema import DATE_COLUMN
+
+FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+
+#: Schema column -> FRED series id, where a direct free equivalent exists.
+DIRECT: dict[str, str] = {
+    "spx_close": "SP500",
+    "vix": "VIXCLS",
+    "credit_spread_hy": "BAMLH0A0HYM2",
+    "credit_spread_ig": "BAMLC0A0CM",
+    "breakeven_10y": "T10YIE",
+}
+
+#: term_spread is derived from two published legs rather than published itself.
+TERM_SPREAD_LEGS: tuple[str, str] = ("DGS10", "DGS2")
+
+#: No free equivalent. These require FactSet or Bloomberg — see Risk 7.
+UNAVAILABLE: tuple[str, ...] = ("agg_close", "fx_impl_vol")
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """How much usable history the free sources actually provide."""
+
+    starts: dict[str, str]
+    complete_from: str | None
+    complete_rows: int
+
+
+def fetch(series_id: str) -> pd.Series:
+    """Download one FRED series as a date-indexed float Series."""
+    frame = pd.read_csv(FRED_CSV.format(series_id=series_id))
+    # 'observation_date' today; FRED used 'DATE' historically, so read positionally.
+    date_column = frame.columns[0]
+    dates = pd.to_datetime(frame[date_column])
+    # FRED has historically written '.' for a non-trading day.
+    values = pd.to_numeric(frame[series_id], errors="coerce")
+    return pd.Series(values.to_numpy(), index=pd.DatetimeIndex(dates), name=series_id)
+
+
+def coverage(frame: pd.DataFrame) -> Coverage:
+    """Describe where each column begins and where the complete panel begins."""
+    starts: dict[str, str] = {}
+    for name in frame.columns:
+        present = frame[name].dropna()
+        if not present.empty:
+            starts[name] = present.index[0].date().isoformat()
+
+    if not starts or len(starts) < len(frame.columns):
+        return Coverage(starts=starts, complete_from=None, complete_rows=0)
+
+    complete_from = max(starts.values())
+    rows = int(frame.loc[complete_from:].notna().all(axis=1).sum())
+    return Coverage(starts=starts, complete_from=complete_from, complete_rows=rows)
+
+
+def build() -> pd.DataFrame:
+    """Assemble every freely sourceable column onto one date index."""
+    columns = {name: fetch(series_id) for name, series_id in DIRECT.items()}
+    ten_year, two_year = (fetch(leg) for leg in TERM_SPREAD_LEGS)
+    columns["term_spread"] = ten_year - two_year
+
+    frame = pd.DataFrame(columns).sort_index()
+    frame.index.name = DATE_COLUMN
+    return frame
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Pull the free subset of the signal schema from FRED."
+    )
+    parser.add_argument("--out", type=Path, default=Path("data/raw/fred_free.csv"))
+    parser.add_argument(
+        "--complete-only",
+        action="store_true",
+        help="trim to the window where every fetched column has data",
+    )
+    args = parser.parse_args(argv)
+
+    frame = build()
+    report = coverage(frame)
+    if args.complete_only and report.complete_from:
+        frame = frame.loc[report.complete_from :]
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(args.out)
+
+    print(f"wrote {len(frame)} rows to {args.out}\n")
+    print("first observation by column:")
+    for name, start in sorted(report.starts.items()):
+        print(f"  {name:<20} {start}")
+    print(f"\ncomplete panel from {report.complete_from} ({report.complete_rows} rows)")
+    print(f"\nno free source for: {', '.join(UNAVAILABLE)}")
+    print("  these need FactSet or Bloomberg; the file above is incomplete without them")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+- [ ] **Step 5: Run the offline tests**
+
+Run: `uv run pytest tests/unit/test_fred_coverage.py -v`
+Expected: `6 passed`
+
+- [ ] **Step 6: Write the network test**
+
+`tests/integration/test_real_data.py`:
+
+```python
+"""Does the pipeline survive real vendor data? Deselected unless asked for.
+
+Run with: uv run pytest -m network -v
+"""
+
+import pytest
+
+from forecasting_engine.ingest.align import align_and_lag
+from forecasting_engine.ingest.loader import SchemaError, load
+from forecasting_engine.sources import fred
+
+pytestmark = pytest.mark.network
+
+
+@pytest.fixture(scope="module")
+def real_csv(tmp_path_factory):
+    path = tmp_path_factory.mktemp("real") / "fred_free.csv"
+    fred.main(["--out", str(path), "--complete-only"])
+    return path
+
+
+def test_strict_load_refuses_an_incomplete_file(real_csv):
+    with pytest.raises(SchemaError) as caught:
+        load(real_csv)
+    for column in fred.UNAVAILABLE:
+        assert column in str(caught.value)
+
+
+def test_lenient_load_reports_exactly_the_institutional_columns(real_csv):
+    raw = load(real_csv, strict=False)
+    missing = {i.column for i in raw.issues if i.kind == "missing_column"}
+    assert missing == set(fred.UNAVAILABLE)
+
+
+def test_real_data_aligns_into_a_panel(real_csv):
+    raw = load(real_csv, strict=False)
+    panel = align_and_lag(raw)
+
+    assert len(panel) > 250, "expected at least a year of complete rows"
+    assert panel.targets == ("spx_fwd_5d",), "agg_close is absent, so only equity has a target"
+    assert not panel.frame.isna().any().any()
+
+
+def test_free_history_is_too_short_for_the_stress_windows(real_csv):
+    """Documents Risk 7 as a measured fact rather than a worry."""
+    raw = load(real_csv, strict=False)
+    years = (raw.frame.index.max() - raw.frame.index.min()).days / 365.25
+    assert years < 8, (
+        f"free data now covers {years:.1f} years. If this ever exceeds the span "
+        "needed for COVID and the 2022 selloff, revisit the institutional-access risk."
+    )
+```
+
+- [ ] **Step 7: Run the network test deliberately**
+
+Run: `uv run pytest -m network -v`
+Expected: `4 passed`. This reaches the internet, so it is slow and may fail if
+FRED is unreachable — that is why it is not in CI.
+
+If `test_real_data_aligns_into_a_panel` fails on the row count, print
+`len(raw.frame)` and check the coverage report: the binding constraint is the
+ICE BofA series' start date, which moves forward over time.
+
+- [ ] **Step 8: Confirm CI is still hermetic**
+
+Run: `uv run pytest -v`
+Expected: the network tests are deselected — the summary line ends with
+`4 deselected`.
+
+- [ ] **Step 9: Commit**
+
+```bash
+uv run ruff format .
+git add src/forecasting_engine/sources/ tests/unit/test_fred_coverage.py tests/integration/test_real_data.py pyproject.toml
+git commit -m "feat: FRED free-data puller and a real-data ingest check"
+git push origin phase-0-ingestion
+```
+
 ## Definition of done for Phase 0
 
 - [ ] `uv sync --all-extras && uv run pytest` is green on a fresh clone
@@ -2086,6 +2423,8 @@ git push origin phase-0-ingestion
 - [ ] `docs/data-specification.md` is written and can be sent to the sponsor
 - [ ] `FeaturePanel` is frozen — Joash can build against it without further changes
 - [ ] The look-ahead guards fail when the lag is deliberately removed
+- [ ] `uv run pytest -m network` proves the pipeline handles real FRED data, and
+      the free-coverage numbers are written down for the Risk 7 conversation
 
 ## What Phase 0 deliberately excludes
 
