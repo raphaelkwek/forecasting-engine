@@ -1,0 +1,6 @@
+[server]
+# Deliberately above MAX_UPLOAD_BYTES (25 MB) in
+# src/forecasting_engine/ingest/upload.py. If the two matched, Streamlit's own
+# generic rejection would fire first and the user would never see our
+# size-limit message. Keep this the looser of the two.
+maxUploadSize = 30
