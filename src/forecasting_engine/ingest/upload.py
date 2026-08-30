@@ -28,7 +28,11 @@ from forecasting_engine.ingest.provenance import SourceFile
 #: Maximum accepted upload. Roughly six times the largest file the data
 #: specification can plausibly produce — see the "File size" section there
 #: before changing it, and change it in both places.
-MAX_UPLOAD_BYTES: int = 25 * 1024 * 1024
+#:
+#: Decimal megabytes, not binary. Streamlit labels file sizes in decimal MB, so
+#: computing in MiB would have the uploader call a file 26.5MB while our error
+#: called the same file 25.2 MB.
+MAX_UPLOAD_BYTES: int = 25 * 1_000_000
 
 #: Where accepted uploads are stored, keyed by content hash. Gitignored.
 DEFAULT_UPLOADS_DIR: Path = Path("data/uploads")
@@ -155,4 +159,4 @@ def date_range(frame: pd.DataFrame) -> tuple[str, str] | None:
 
 
 def _megabytes(size_bytes: int) -> str:
-    return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / 1_000_000:.1f} MB"

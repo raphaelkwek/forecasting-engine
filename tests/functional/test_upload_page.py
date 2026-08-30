@@ -108,6 +108,12 @@ def test_a_renamed_spreadsheet_is_rejected_too(page):
     assert "could not be read as a CSV" in error.value
 
 
+def test_the_page_states_the_documented_limit(page):
+    # The caption is the only place a limit is quoted; Streamlit's own looser
+    # number is hidden. If this stops matching the constant, the two have drifted.
+    assert f"up to {MAX_UPLOAD_BYTES // 1_000_000} MB" in page.caption[0].value
+
+
 def test_the_uploader_does_not_filter_by_type_in_the_browser(page):
     # If it did, a non-CSV would never reach the server and AC2's error could
     # never be shown. This is load-bearing, not incidental.

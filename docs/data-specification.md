@@ -32,8 +32,12 @@ filename.
 
 ## File size
 
-**25 MB maximum.** Files above this are rejected with an error quoting both the
-file's size and the limit.
+**25 MB maximum** — 25,000,000 bytes. Files above this are rejected with an
+error quoting both the file's size and the limit.
+
+Decimal megabytes, not binary. Streamlit reports file sizes in decimal MB, and
+matching it keeps the uploader and our error message from putting two different
+numbers on the same file.
 
 The limit is deliberately loose. The nine columns below at daily frequency come
 to roughly 120 bytes per row, so thirty years of history is about 1 MB; a full

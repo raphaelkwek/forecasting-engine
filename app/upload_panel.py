@@ -22,7 +22,7 @@ from forecasting_engine.store.uploads import recent_uploads, record_upload
 SESSION_KEY = "accepted_upload"
 
 _LOGGED_KEY = "_logged_upload_file_id"
-_LIMIT_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
+_LIMIT_MB = MAX_UPLOAD_BYTES // 1_000_000
 
 
 def render() -> None:
@@ -31,6 +31,16 @@ def render() -> None:
     st.caption(
         f"A single CSV of daily market and macroeconomic signals, up to {_LIMIT_MB} MB. "
         "See docs/data-specification.md for the column contract."
+    )
+
+    # Streamlit prints server.maxUploadSize inside the dropzone. That value is
+    # deliberately looser than ours (see .streamlit/config.toml), so showing it
+    # would contradict the limit stated just above. Hide it and let the caption
+    # be the single answer. Cosmetic only: if a Streamlit upgrade renames the
+    # test id, the stale number reappears but nothing breaks.
+    st.markdown(
+        '<style>[data-testid="stFileUploaderDropzoneInstructions"]{display:none}</style>',
+        unsafe_allow_html=True,
     )
 
     # No `type=` filter on purpose: it would drop non-CSV files in the browser,

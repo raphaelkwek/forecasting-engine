@@ -79,13 +79,13 @@ def test_a_file_barely_over_the_limit_gets_an_exact_byte_count():
     # user nothing. Fall back to bytes when the two would look identical.
     with pytest.raises(FileSizeError) as exc:
         check_size(MAX_UPLOAD_BYTES + 23, filename="edge.csv")
-    assert "26,214,423 bytes" in exc.value.message
-    assert "26,214,400 bytes" in exc.value.message
+    assert "25,000,023 bytes" in exc.value.message
+    assert "25,000,000 bytes" in exc.value.message
 
 
 def test_the_size_error_quotes_both_the_size_and_the_limit():
     with pytest.raises(FileSizeError) as exc:
-        check_size(30 * 1024 * 1024, filename="big.csv")
+        check_size(30 * 1_000_000, filename="big.csv")
     assert "30.0 MB" in exc.value.message
     assert "25.0 MB" in exc.value.message
 
