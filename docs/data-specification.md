@@ -115,6 +115,21 @@ information into the past.
 A signal that did not yet exist on a given date is missing, not zero. Do not
 back-fill history for a series that started later; leave the cells empty.
 
+### What counts as blank
+
+An empty cell is missing data. So are `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`
+and `#N/A` — including Bloomberg's `#N/A N/A`, which its exports use freely.
+These are reported as missing and do not block validation.
+
+Anything else in a numeric column is a type error and blocks: `-`, `TBD`,
+`not reported`, and Bloomberg's longer forms `#N/A Field Not Applicable` and
+`#N/A Invalid Security` are all rejected with their line number. If your export
+carries those, replace them with empty cells before uploading.
+
+The distinction matters and is invisible in Excel — both look like text in a
+number column. Missing data is a fact about the world; a placeholder we cannot
+interpret is a fault in the file.
+
 ## Point-in-time dating
 
 Revised macroeconomic series must be dated to their **release date**, not their

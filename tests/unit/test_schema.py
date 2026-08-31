@@ -1,6 +1,10 @@
 import pandas as pd
+import pytest
 
 from forecasting_engine.ingest import schema
+from forecasting_engine.ingest.upload import parse_csv
+
+_VIX = next(c for c in schema.COLUMNS if c.name == "vix")
 
 
 def valid_frame() -> pd.DataFrame:
@@ -241,3 +245,27 @@ def test_an_ambiguous_non_iso_date_is_rejected_rather_than_guessed():
 
     (issue,) = [i for i in schema.validate(frame) if i.kind == "unparseable_date"]
     assert issue.rows == (3,)
+
+
+# --- what counts as a blank cell -------------------------------------------
+#
+# pandas reads a fixed set of tokens as missing. That set decides whether a cell
+# is "no data" (reported later by quality checks) or a type error (blocking
+# now), so it is worth pinning: Bloomberg exports carry #N/A heavily, and the
+# difference is invisible to whoever opens the file in Excel.
+
+
+@pytest.mark.parametrize("token", ["", "n/a", "N/A", "NA", "null", "NULL", "#N/A", "#N/A N/A"])
+def test_recognised_blank_tokens_are_missing_data_not_type_errors(token):
+    frame = parse_csv(f"date,vix\n2024-01-01,{token}\n".encode())
+    issues = [i for i in schema._numeric_issues(frame["vix"], _VIX) if i.kind == "non_numeric"]
+    assert issues == []
+
+
+@pytest.mark.parametrize(
+    "token", ["-", "TBD", "not reported", "#N/A Field Not Applicable", "#N/A Invalid Security"]
+)
+def test_unrecognised_placeholders_are_type_errors(token):
+    frame = parse_csv(f"date,vix\n2024-01-01,{token}\n".encode())
+    issues = [i for i in schema._numeric_issues(frame["vix"], _VIX) if i.kind == "non_numeric"]
+    assert [i.rows for i in issues] == [(2,)]
