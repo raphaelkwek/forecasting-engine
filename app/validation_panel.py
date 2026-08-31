@@ -90,6 +90,15 @@ def _render_report(result: ValidationResult, *, rows: int) -> None:
         ],
         width="stretch",
         hide_index=True,
+        # The column name is the answer to "where is the problem", so it must
+        # never truncate. Auto-sizing clips the longer ones (credit_spread_hy).
+        column_config={
+            "Severity": st.column_config.TextColumn(width="small"),
+            "Column": st.column_config.TextColumn(width="medium"),
+            "Lines": st.column_config.TextColumn(width="medium"),
+            "Cells": st.column_config.NumberColumn(width="small"),
+            "Problem": st.column_config.TextColumn(width="large"),
+        },
     )
 
 
