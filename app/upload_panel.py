@@ -25,8 +25,12 @@ _LOGGED_KEY = "_logged_upload_file_id"
 _LIMIT_MB = MAX_UPLOAD_BYTES // 1_000_000
 
 
-def render() -> None:
-    """Draw the panel and handle whatever the user has uploaded."""
+def render() -> AcceptedUpload | None:
+    """Draw the panel and handle whatever the user has uploaded.
+
+    Returns the accepted upload so the page can hand it to schema validation,
+    or None when there is nothing to validate.
+    """
     st.header("Upload signal data")
     st.caption(
         f"A single CSV of daily market and macroeconomic signals, up to {_LIMIT_MB} MB. "
@@ -49,19 +53,20 @@ def render() -> None:
 
     if uploaded is None:
         _render_history()
-        return
+        return None
 
     try:
         accepted = accept_upload(uploaded.name, uploaded.getvalue())
     except UploadError as exc:
         st.error(exc.message)
         _render_history()
-        return
+        return None
 
     _log_once(accepted, file_id=getattr(uploaded, "file_id", accepted.source.sha256))
     st.session_state[SESSION_KEY] = accepted
     _render_confirmation(accepted)
     _render_history()
+    return accepted
 
 
 def _log_once(accepted: AcceptedUpload, *, file_id: str) -> None:
