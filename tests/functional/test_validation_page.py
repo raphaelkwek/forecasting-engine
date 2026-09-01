@@ -152,3 +152,55 @@ def test_a_failing_validation_is_logged_with_its_issues(page, tmp_path):
 def test_a_clean_file_reports_no_issues(page):
     result = upload(page, csv_bytes())
     assert "No issues found." in texts(result.caption)
+
+
+# --- the shared quality report model on the page ---------------------------
+
+
+def test_the_report_is_available_to_later_pages(page):
+    result = upload(page, csv_bytes())
+
+    report = result.session_state["quality_report"]
+    assert report.source.name == "signals.csv"
+    assert report.coverage.rows == 3
+    assert report.coverage.columns == 9
+
+
+def test_checks_that_have_not_been_built_show_as_pending(page):
+    # FYP-25 requires a pending state rather than a blank or broken view.
+    result = upload(page, csv_bytes())
+
+    caption = texts(result.caption)
+    assert "Checks not yet run" in caption
+    for title in ("Outliers", "Data gaps", "Missing values"):
+        assert title in caption
+
+
+def test_schema_does_not_appear_as_pending_once_it_has_run(page):
+    result = upload(page, csv_bytes())
+    assert "Schema validation," not in texts(result.caption)
+
+
+def test_the_report_shows_the_coverage_period(page):
+    result = upload(page, csv_bytes())
+    assert "2024-01-01 to 2024-01-03" in texts(result.caption)
+
+
+def test_a_finding_shows_the_date_of_the_offending_row(page):
+    rows = list(ROWS)
+    rows[1] = rows[1].replace(",16.0,", ",900.0,")
+    result = upload(page, csv_bytes(rows))
+
+    report = result.session_state["quality_report"]
+    (found,) = report.findings
+    assert found.signal == "vix"
+    assert found.dates == ("2024-01-02",)
+
+
+def test_a_blocking_report_is_still_readable(page):
+    result = upload(page, without_vix())
+
+    report = result.session_state["quality_report"]
+    assert report.status.value == "failed"
+    assert not report.passed
+    assert list(report.by_signal()) == ["vix"]
