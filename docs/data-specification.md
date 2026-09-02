@@ -14,6 +14,12 @@ twin of the column contract — if you change one, change the other.
 > the architecture design. Both are single config values rather than structural
 > commitments. The file format, type and size rules are settled.
 
+## Producing this file from Bloomberg
+
+Bloomberg exports one workbook per security, which is not this format. See
+[bloomberg-exports.md](bloomberg-exports.md) for the securities to pull and the
+converter that joins them into one CSV.
+
 ## File format
 
 - UTF-8 encoded CSV with a header row
