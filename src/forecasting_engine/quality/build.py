@@ -13,7 +13,7 @@ import pandas as pd
 
 from forecasting_engine.ingest.upload import AcceptedUpload, date_range
 from forecasting_engine.ingest.validation import ValidationResult
-from forecasting_engine.quality import outliers
+from forecasting_engine.quality import gaps, outliers
 from forecasting_engine.quality.report import Coverage, QualityFinding, QualityReport
 from forecasting_engine.quality.schema_check import schema_section
 
@@ -21,9 +21,10 @@ from forecasting_engine.quality.schema_check import schema_section
 def build_report(accepted: AcceptedUpload, result: ValidationResult) -> QualityReport:
     """Run every available check over one upload.
 
-    Outlier detection runs on every upload, chained after schema validation —
-    but only when validation passed. Scoring the spread of a column that failed
-    to parse as numbers would produce findings about nothing.
+    Outlier and gap detection run on every upload, chained after schema
+    validation — but only when validation passed. Scoring the spread of a column
+    that failed to parse as numbers, or reconciling dates that would not parse,
+    produces findings about nothing.
     """
     span = date_range(accepted.frame)
     report = QualityReport(
@@ -40,6 +41,7 @@ def build_report(accepted: AcceptedUpload, result: ValidationResult) -> QualityR
 
     if result.passed:
         report = report.with_section(outliers.detect(accepted.frame))
+        report = report.with_section(gaps.detect(accepted.frame))
     return report
 
 
