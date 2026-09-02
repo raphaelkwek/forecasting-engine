@@ -24,6 +24,16 @@ CSV — see [docs/data-specification.md](docs/data-specification.md) for the
 column contract, the 25 MB size limit, and which placeholder tokens count as
 blank.
 
+Coming from Bloomberg? Its exports are one workbook per security, not one CSV.
+Convert them first:
+
+```bash
+uv run python -m forecasting_engine.convert path/to/exports/*.xlsx -o signals.csv
+```
+
+See [docs/bloomberg-exports.md](docs/bloomberg-exports.md) for which securities
+to pull.
+
 ## Checks
 
 ```bash
@@ -65,6 +75,8 @@ tests/                      unit, integration, functional
 ## Documentation
 
 - [Data specification](docs/data-specification.md) — the CSV contract
+- [Bloomberg exports](docs/bloomberg-exports.md) — which securities to pull, and
+  the converter that joins them
 - [Quality report contract](docs/quality-report-contract.md) — cross-ticket
   design decisions for the shared report model
 - [Architecture design](docs/superpowers/specs/2026-07-29-forecasting-engine-architecture-design.md)
