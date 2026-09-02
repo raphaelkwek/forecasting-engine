@@ -59,6 +59,8 @@ The left edge of the pipeline: upload and validation.
   halt the pipeline; range breaches are reported and retained.
 - **Data quality report** — rendered on the Data page from a model shared with
   the outlier, gap and report-view tickets.
+- **Synthetic data** — a generator producing contract-shaped files with known
+  defects, so the pipeline can be run before real exports arrive.
 
 Forecasting, portfolio construction and risk analysis are not built yet.
 
