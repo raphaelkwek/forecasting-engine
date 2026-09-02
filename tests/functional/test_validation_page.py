@@ -172,13 +172,13 @@ def test_checks_that_have_not_been_built_show_as_pending(page):
 
     caption = texts(result.caption)
     assert "Checks not yet run" in caption
-    for title in ("Data gaps", "Missing values"):
-        assert title in caption
+    assert "Missing values" in caption
 
 
-def test_outlier_detection_no_longer_shows_as_pending(page):
-    result = upload(page, csv_bytes())
-    assert "Outliers" not in texts(result.caption)
+def test_checks_that_now_exist_no_longer_show_as_pending(page):
+    caption = texts(upload(page, csv_bytes()).caption)
+    assert "Outliers" not in caption
+    assert "Data gaps" not in caption
 
 
 def test_schema_does_not_appear_as_pending_once_it_has_run(page):

@@ -69,12 +69,22 @@ def test_detection_is_skipped_when_validation_failed():
     assert report.section("outliers").status is CheckStatus.PENDING
 
 
+def test_gap_detection_runs_alongside_the_outlier_check():
+    accepted, result = ingest(csv_bytes())
+    assert build_report(accepted, result).section("gaps").status is CheckStatus.PASSED
+
+
 def test_checks_that_do_not_exist_yet_stay_pending():
     accepted, result = ingest(csv_bytes())
     statuses = {s.check: s.status for s in build_report(accepted, result).sections}
 
-    assert statuses["gaps"] is CheckStatus.PENDING
     assert statuses["missing"] is CheckStatus.PENDING
+
+
+def test_gap_detection_is_skipped_when_validation_failed():
+    broken = csv_bytes().replace(b"date,spx_close", b"date,NOT_spx_close", 1)
+    accepted, result = ingest(broken)
+    assert build_report(accepted, result).section("gaps").status is CheckStatus.PENDING
 
 
 def test_outliers_never_stop_the_report_passing():
