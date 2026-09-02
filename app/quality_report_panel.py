@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+import ui
 from forecasting_engine.quality.report import (
     CheckStatus,
     QualityFinding,
@@ -22,18 +23,12 @@ from forecasting_engine.quality.report import (
     Severity,
 )
 
-_STATUS_ICON = {
-    CheckStatus.PENDING: "⋯",
-    CheckStatus.PASSED: "✓",
-    CheckStatus.FLAGGED: "!",
-    CheckStatus.FAILED: "✕",
-}
-
-_STATUS_WORD = {
-    CheckStatus.PENDING: "Pending",
-    CheckStatus.PASSED: "Passed",
-    CheckStatus.FLAGGED: "Flagged",
-    CheckStatus.FAILED: "Failed",
+#: Each check status as a word and the lozenge tone that carries it.
+_STATUS = {
+    CheckStatus.PENDING: ("Pending", "neutral"),
+    CheckStatus.PASSED: ("Passed", "success"),
+    CheckStatus.FLAGGED: ("Flagged", "warning"),
+    CheckStatus.FAILED: ("Failed", "danger"),
 }
 
 _SEVERITY_WORD = {
@@ -45,6 +40,7 @@ _SEVERITY_WORD = {
 
 def render(report: QualityReport | None) -> None:
     """Draw the report, or a pending state when there is nothing to draw yet."""
+    ui.inject()
     st.subheader("Data quality report")
 
     if report is None:
@@ -60,10 +56,11 @@ def render(report: QualityReport | None) -> None:
 
 def _render_awaiting_upload() -> None:
     """AC5: a legible pending state, not a blank page."""
-    st.info("No data ingested yet. Upload a signal CSV on the **Data** page.", icon="📄")
-    st.caption("These checks will run automatically once a file is accepted:")
-    for _, title in _pending_titles():
-        st.markdown(f"&nbsp;&nbsp;⋯ &nbsp;{title} — Pending", unsafe_allow_html=True)
+    st.info("No data ingested yet. Upload a signal CSV on the **Data** page.")
+    st.caption("These checks will run automatically once a file is accepted.")
+    badge = ui.lozenge("Pending", "neutral")
+    rows = "".join(ui.status_row(title, badge) for _, title in _pending_titles())
+    st.markdown(rows, unsafe_allow_html=True)
 
 
 def _pending_titles():
@@ -121,7 +118,7 @@ def _render_completeness(report: QualityReport) -> None:
     if not signals:
         return
 
-    st.markdown("**Completeness by signal**")
+    st.markdown(ui.eyebrow("Completeness by signal"), unsafe_allow_html=True)
     st.dataframe(
         [
             {
@@ -152,7 +149,7 @@ def _render_breakdown(report: QualityReport) -> None:
     if not by_signal and not whole_file:
         return
 
-    st.markdown("**Flagged observations**")
+    st.markdown(ui.eyebrow("Flagged observations"), unsafe_allow_html=True)
     st.caption(
         f"{report.summary['finding_count']} across "
         f"{len(by_signal)} signal{'s' if len(by_signal) != 1 else ''}"
@@ -205,13 +202,11 @@ def _render_findings(findings: list[QualityFinding]) -> None:
 
 def _render_checks(report: QualityReport) -> None:
     """Which checks ran, and which have not been built yet."""
-    st.markdown("**Checks**")
+    st.markdown(ui.eyebrow("Checks"), unsafe_allow_html=True)
+    rows = []
     for section in report.sections:
-        icon = _STATUS_ICON[section.status]
-        word = _STATUS_WORD[section.status]
+        word, tone = _STATUS[section.status]
         count = len(section.findings)
-        tail = f" — {count} flagged" if count else ""
-        st.markdown(
-            f"&nbsp;&nbsp;{icon} &nbsp;{section.title} — {word}{tail}",
-            unsafe_allow_html=True,
-        )
+        meta = f"{count} flagged" if count else ""
+        rows.append(ui.status_row(section.title, ui.lozenge(word, tone), meta))
+    st.markdown("".join(rows), unsafe_allow_html=True)

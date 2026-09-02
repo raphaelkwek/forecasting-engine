@@ -5,7 +5,7 @@ import streamlit as st
 import upload_panel
 import validation_panel
 
-st.set_page_config(page_title="Data · Forecasting Engine", page_icon="📈")
+st.set_page_config(page_title="Data · Forecasting Engine", page_icon=":material/database:")
 
 accepted = upload_panel.render()
 if accepted is not None:

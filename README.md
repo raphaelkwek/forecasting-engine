@@ -68,6 +68,20 @@ The left edge of the pipeline: upload and validation.
 
 Forecasting, portfolio construction and risk analysis are not built yet.
 
+## Interface
+
+The dashboard follows [GitHub Primer](https://primer.style/foundations/color):
+an enterprise blue accent, neutral greys carrying the structure, and semantic
+green, amber and red reserved for state. Atlassian's system shares the same
+bones. Both themes are defined explicitly in `.streamlit/config.toml` rather
+than derived by inversion.
+
+Status appears as a lozenge — a short uppercase badge — rather than a coloured
+word or a symbol, because it reads at a glance in a list. `app/ui.py` holds that
+and the shared stylesheet.
+
+No emoji anywhere: an internal analytical tool should read as a tool.
+
 ## Layout
 
 ```
@@ -76,6 +90,7 @@ src/forecasting_engine/     core library, never imports Streamlit
   quality/                  the shared data quality report
   store/                    DuckDB history
 app/                        Streamlit dashboard, no maths
+  ui.py                     lozenges, status rows, shared stylesheet
 docs/                       data specification, design, decisions
 tests/                      unit, integration, functional
 ```

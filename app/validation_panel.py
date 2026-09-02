@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+import ui
 from forecasting_engine.ingest.upload import AcceptedUpload
 from forecasting_engine.ingest.validation import (
     ValidationFailed,
@@ -54,6 +55,7 @@ _STATUS_LABEL = {
 
 def render(accepted: AcceptedUpload) -> None:
     """Validate ``accepted``, gate the pipeline on the outcome, and report."""
+    ui.inject()
     st.subheader("Schema validation")
 
     result = validate_upload(accepted)
@@ -98,7 +100,7 @@ def _log_once(result: ValidationResult) -> None:
 
 def _render_report(report: QualityReport) -> None:
     """The data quality report: coverage, headline counts, then every finding."""
-    st.markdown("**Data quality report**")
+    st.markdown(ui.eyebrow("Data quality report"), unsafe_allow_html=True)
 
     summary = report.summary
     checked, blockers, warnings = st.columns(3)

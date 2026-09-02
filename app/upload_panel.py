@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+import ui
 from forecasting_engine.ingest.upload import (
     MAX_UPLOAD_BYTES,
     AcceptedUpload,
@@ -31,20 +32,11 @@ def render() -> AcceptedUpload | None:
     Returns the accepted upload so the page can hand it to schema validation,
     or None when there is nothing to validate.
     """
+    ui.inject()
     st.header("Upload signal data")
     st.caption(
         f"A single CSV of daily market and macroeconomic signals, up to {_LIMIT_MB} MB. "
         "See docs/data-specification.md for the column contract."
-    )
-
-    # Streamlit prints server.maxUploadSize inside the dropzone. That value is
-    # deliberately looser than ours (see .streamlit/config.toml), so showing it
-    # would contradict the limit stated just above. Hide it and let the caption
-    # be the single answer. Cosmetic only: if a Streamlit upgrade renames the
-    # test id, the stale number reappears but nothing breaks.
-    st.markdown(
-        '<style>[data-testid="stFileUploaderDropzoneInstructions"]{display:none}</style>',
-        unsafe_allow_html=True,
     )
 
     # No `type=` filter on purpose: it would drop non-CSV files in the browser,

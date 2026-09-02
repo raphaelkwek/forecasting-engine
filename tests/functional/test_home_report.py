@@ -191,6 +191,31 @@ def test_a_failed_file_shows_its_checks_as_pending_rather_than_absent(
 ):
     home = ingested(tmp_path, monkeypatch, broken_csv())
 
+    # Status is a lozenge beside the check name, so assert on the rendered row.
     body = texts(home.markdown)
-    assert "Outliers — Pending" in body
-    assert "Schema validation — Failed" in body
+    assert "Outliers" in body
+    assert "Schema validation" in body
+    assert "Pending" in body and "Failed" in body
+
+    statuses = {s.check: s.status.value for s in home.session_state["quality_report"].sections}
+    assert statuses["outliers"] == "pending"
+    assert statuses["schema"] == "failed"
+
+
+def test_status_is_shown_as_a_lozenge_not_a_symbol(tmp_path, monkeypatch):
+    home = ingested(tmp_path, monkeypatch, signals_csv())
+
+    body = texts(home.markdown)
+    assert "fe-lozenge" in body
+    for symbol in ("✓", "✕", "⋯"):
+        assert symbol not in body, symbol
+
+
+def test_the_stylesheet_reaches_home_even_after_the_data_page_rendered(
+    tmp_path, monkeypatch
+):
+    # Streamlit renders each page from scratch, so a session-scoped injection
+    # guard leaves whichever page runs second unstyled.
+    home = ingested(tmp_path, monkeypatch, signals_csv())
+    assert "fe-lozenge" in texts(home.markdown)
+    assert "fe-eyebrow" in texts(home.markdown)

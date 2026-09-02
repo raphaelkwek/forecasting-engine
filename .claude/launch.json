@@ -4,8 +4,32 @@
     {
       "name": "dashboard",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "streamlit", "run", "app/Home.py", "--server.port", "8501", "--server.headless", "true"],
+      "runtimeArgs": [
+        "run",
+        "streamlit",
+        "run",
+        "app/Home.py",
+        "--server.port",
+        "8501",
+        "--server.headless",
+        "true"
+      ],
       "port": 8501
+    },
+    {
+      "name": "dashboard-preview",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "streamlit",
+        "run",
+        "app/Home.py",
+        "--server.port",
+        "8502",
+        "--server.headless",
+        "true"
+      ],
+      "port": 8502
     }
   ]
 }

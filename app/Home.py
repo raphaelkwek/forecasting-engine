@@ -11,7 +11,7 @@ import streamlit as st
 import quality_report_panel
 from validation_panel import REPORT_KEY
 
-st.set_page_config(page_title="Forecasting Engine", page_icon="📈")
+st.set_page_config(page_title="Forecasting Engine", page_icon=":material/monitoring:")
 
 st.title("Forecasting Engine")
 st.write(
