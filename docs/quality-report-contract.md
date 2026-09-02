@@ -14,7 +14,8 @@ document records how each was resolved and why, so that whoever picks up FYP-9,
 FYP-10 or FYP-25 does not rediscover the argument or quietly resolve it the
 other way. **Changing any of these breaks a sibling ticket.**
 
-Status: settled as of FYP-8. Raise a change with the team rather than editing
+Status: settled as of FYP-8, and unchanged by FYP-9, FYP-10 and FYP-25, all of
+which are now built against it. Raise a change with the team rather than editing
 the model to suit one ticket.
 
 ---
@@ -123,7 +124,14 @@ in a `detail` string.
 
 **Consequence for the missing-values work.** "Count of missing values filled,
 per signal" belongs in the `missing` section's `stats`, not as one finding per
-filled cell.
+filled cell. As built, that section carries counts and produces **no findings
+at all**: which specific sessions are absent is the gap check's job, and
+repeating those dates would say the same thing twice in two places.
+
+Note also that nothing is *filled* yet. The forward fill happens in data
+preparation, so the section reports what is missing and says so, rather than
+implying a repair that has not happened. `stats["filled"]` is 0 and stays 0
+until `align_and_lag` exists.
 
 ---
 

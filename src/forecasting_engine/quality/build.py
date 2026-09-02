@@ -13,7 +13,7 @@ import pandas as pd
 
 from forecasting_engine.ingest.upload import AcceptedUpload, date_range
 from forecasting_engine.ingest.validation import ValidationResult
-from forecasting_engine.quality import gaps, outliers
+from forecasting_engine.quality import gaps, missing, outliers
 from forecasting_engine.quality.report import Coverage, QualityFinding, QualityReport
 from forecasting_engine.quality.schema_check import schema_section
 
@@ -42,6 +42,7 @@ def build_report(accepted: AcceptedUpload, result: ValidationResult) -> QualityR
     if result.passed:
         report = report.with_section(outliers.detect(accepted.frame))
         report = report.with_section(gaps.detect(accepted.frame))
+        report = report.with_section(missing.detect(accepted.frame))
     return report
 
 
