@@ -74,10 +74,22 @@ def test_gap_detection_runs_alongside_the_outlier_check():
     assert build_report(accepted, result).section("gaps").status is CheckStatus.PASSED
 
 
-def test_checks_that_do_not_exist_yet_stay_pending():
+def test_every_known_check_now_runs_on_a_valid_upload():
     accepted, result = ingest(csv_bytes())
     statuses = {s.check: s.status for s in build_report(accepted, result).sections}
 
+    assert CheckStatus.PENDING not in statuses.values()
+
+
+def test_every_check_reverts_to_pending_when_validation_fails():
+    # The report view relies on this: pending is what it renders instead of a
+    # blank section, and a failed file has nothing to say about its outliers.
+    broken = csv_bytes().replace(b"date,spx_close", b"date,NOT_spx_close", 1)
+    accepted, result = ingest(broken)
+    statuses = {s.check: s.status for s in build_report(accepted, result).sections}
+
+    assert statuses["outliers"] is CheckStatus.PENDING
+    assert statuses["gaps"] is CheckStatus.PENDING
     assert statuses["missing"] is CheckStatus.PENDING
 
 

@@ -166,19 +166,12 @@ def test_the_report_is_available_to_later_pages(page):
     assert report.coverage.columns == 9
 
 
-def test_checks_that_have_not_been_built_show_as_pending(page):
-    # FYP-25 requires a pending state rather than a blank or broken view.
+def test_no_check_is_left_pending_on_a_valid_upload(page):
     result = upload(page, csv_bytes())
 
-    caption = texts(result.caption)
-    assert "Checks not yet run" in caption
-    assert "Missing values" in caption
-
-
-def test_checks_that_now_exist_no_longer_show_as_pending(page):
-    caption = texts(upload(page, csv_bytes()).caption)
-    assert "Outliers" not in caption
-    assert "Data gaps" not in caption
+    assert "Checks not yet run" not in texts(result.caption)
+    statuses = {s.check: s.status.value for s in result.session_state["quality_report"].sections}
+    assert "pending" not in statuses.values()
 
 
 def test_schema_does_not_appear_as_pending_once_it_has_run(page):
