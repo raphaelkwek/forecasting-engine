@@ -287,3 +287,50 @@ def test_the_description_names_every_outcome(tmp_path):
     assert "ok       vix" in described
     assert "skipped" in described
     assert "MISSING  spx_close" in described
+
+
+# --- files that are not workbooks ------------------------------------------
+
+
+def test_an_excel_lock_file_is_skipped_by_name(tmp_path):
+    # Excel writes ~$name.xlsx beside any workbook it has open. A glob over a
+    # folder someone is working in picks them up, and they are not zips.
+    good = workbook(tmp_path, "vix.xlsx", "VIX Index")
+    lock = tmp_path / "~$vix.xlsx"
+    lock.write_bytes(b"\x0cRapqrs" + bytes(150))
+
+    frame, report = convert([good, lock])
+
+    assert "vix" in report.used
+    assert any("Excel lock file" in note for note in report.skipped)
+    assert len(frame) == 3
+
+
+def test_a_file_that_is_not_a_zip_is_reported_rather_than_fatal(tmp_path):
+    # An .xlsx is a zip. A truncated download or a renamed CSV fails inside
+    # openpyxl, which raises BadZipFile - not the ValueError convert() expected.
+    good = workbook(tmp_path, "vix.xlsx", "VIX Index")
+    broken = tmp_path / "truncated.xlsx"
+    broken.write_bytes(b"date,spx_close\n2024-01-01,100\n")
+
+    frame, report = convert([good, broken])
+
+    assert "vix" in report.used, "one bad file must not lose the good ones"
+    assert any("not a readable .xlsx" in note for note in report.skipped)
+
+
+def test_reading_a_non_zip_directly_raises_a_clear_error(tmp_path):
+    broken = tmp_path / "nope.xlsx"
+    broken.write_bytes(b"not a zip")
+
+    with pytest.raises(ValueError, match="not a readable .xlsx"):
+        read_export(broken)
+
+
+def test_a_missing_file_is_reported_rather_than_fatal(tmp_path):
+    good = workbook(tmp_path, "vix.xlsx", "VIX Index")
+
+    _, report = convert([good, tmp_path / "gone.xlsx"])
+
+    assert "vix" in report.used
+    assert any("not a readable .xlsx" in note for note in report.skipped)

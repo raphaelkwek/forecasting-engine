@@ -57,10 +57,30 @@ The left edge of the pipeline: upload and validation.
 - **Schema validation** — required columns, per-column types and ranges,
   reporting the column, line number and date of each problem. Blocking faults
   halt the pipeline; range breaches are reported and retained.
-- **Data quality report** — rendered on the Data page from a model shared with
-  the outlier, gap and report-view tickets.
+- **Outlier detection** — flags extreme daily moves per signal, retains every
+  value, and lets the portfolio manager include or exclude each one.
+- **Gap reconciliation** — checks missing dates against each signal's own market
+  calendar, so holidays and weekends are not reported as missing data.
+- **Data quality report** — on the dashboard's front page: date range,
+  per-signal completeness, and every flagged observation, expandable by signal.
+- **Synthetic data** — a generator producing contract-shaped files with known
+  defects, so the pipeline can be run before real exports arrive.
 
 Forecasting, portfolio construction and risk analysis are not built yet.
+
+## Interface
+
+The dashboard follows [GitHub Primer](https://primer.style/foundations/color):
+an enterprise blue accent, neutral greys carrying the structure, and semantic
+green, amber and red reserved for state. Atlassian's system shares the same
+bones. Both themes are defined explicitly in `.streamlit/config.toml` rather
+than derived by inversion.
+
+Status appears as a lozenge — a short uppercase badge — rather than a coloured
+word or a symbol, because it reads at a glance in a list. `app/ui.py` holds that
+and the shared stylesheet.
+
+No emoji anywhere: an internal analytical tool should read as a tool.
 
 ## Layout
 
@@ -70,6 +90,7 @@ src/forecasting_engine/     core library, never imports Streamlit
   quality/                  the shared data quality report
   store/                    DuckDB history
 app/                        Streamlit dashboard, no maths
+  ui.py                     lozenges, status rows, shared stylesheet
 docs/                       data specification, design, decisions
 tests/                      unit, integration, functional
 ```
@@ -81,5 +102,9 @@ tests/                      unit, integration, functional
   the converter that joins them
 - [Quality report contract](docs/quality-report-contract.md) — cross-ticket
   design decisions for the shared report model
+- [Outlier detection](docs/outlier-detection.md) — the method, its calibration
+  against real data, and the evidence for each choice
+- [Market calendars](docs/market-calendars.md) — the calendar source, the
+  per-signal mapping, and how gaps are reconciled against it
 - [Architecture design](docs/superpowers/specs/2026-07-29-forecasting-engine-architecture-design.md)
 - [Phase 0 plan](docs/superpowers/plans/2026-07-29-phase-0-scaffold-and-ingestion.md)

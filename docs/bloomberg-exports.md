@@ -53,6 +53,12 @@ uv run python -m forecasting_engine.convert ~/Documents/FYP/exports/*.xlsx -o da
 
 If the shell answers `no matches found`, that path has no `.xlsx` files in it.
 
+Close the workbooks in Excel first, or don't worry about it — Excel leaves a
+lock file named `~$something.xlsx` beside any workbook it has open, and the
+converter names and skips those rather than choking on them. Anything else that
+is not a readable workbook is reported the same way, so one bad file never costs
+you the good ones.
+
 Output goes under `data/` because that directory is gitignored; exported market
 data should not end up in the repository.
 
