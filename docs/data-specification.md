@@ -136,6 +136,26 @@ The distinction matters and is invisible in Excel — both look like text in a
 number column. Missing data is a fact about the world; a placeholder we cannot
 interpret is a fault in the file.
 
+## Synthetic test file
+
+`python -m forecasting_engine.fixtures` writes a file matching this
+specification, for exercising the pipeline before the real exports are
+complete:
+
+```bash
+uv run python -m forecasting_engine.fixtures --years 10
+```
+
+It includes deliberate defects — duplicate dates, a four-day gap, blank cells —
+and a stress window a third of the way through, so the quality checks and the
+crash-recall metric have something to find. Pass `--clean` for a file with none
+of them. Output is deterministic for a given `--seed`.
+
+The numbers are invented. They are shaped to behave like a market — volatility
+mean-reverts and spikes as prices fall, spreads widen with it — but nothing in
+the file came from one. It is for testing and demonstration, never for analysis
+or for any result presented as real.
+
 ## Point-in-time dating
 
 Revised macroeconomic series must be dated to their **release date**, not their
