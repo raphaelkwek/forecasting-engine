@@ -20,8 +20,8 @@ from forecasting_engine.ingest.validation import (
     require_valid,
     validate_upload,
 )
+from forecasting_engine.quality.build import apply_decisions, build_report, with_decisions
 from forecasting_engine.quality.report import CheckStatus, QualityReport, Severity
-from forecasting_engine.quality.schema_check import quality_report
 from forecasting_engine.store.validations import record_validation
 
 #: The token data preparation will require. Absent means the pipeline is halted.
@@ -29,6 +29,12 @@ VALIDATED_KEY = "validated_upload"
 
 #: The assembled report, for the pages downstream to read.
 REPORT_KEY = "quality_report"
+
+#: The frame a model should see, once exclusions are applied.
+PREPARED_KEY = "prepared_frame"
+
+#: finding id -> "include" | "exclude", surviving Streamlit's reruns.
+DECISIONS_KEY = "outlier_decisions"
 
 _LOGGED_KEY = "_logged_validation_sha"
 
@@ -53,8 +59,9 @@ def render(accepted: AcceptedUpload) -> None:
     result = validate_upload(accepted)
     _log_once(result)
 
-    report = quality_report(accepted, result)
+    report = with_decisions(build_report(accepted, result), _decisions())
     st.session_state[REPORT_KEY] = report
+    st.session_state[PREPARED_KEY] = apply_decisions(accepted.frame, report)
 
     try:
         validated = require_valid(accepted, result)
@@ -106,6 +113,7 @@ def _render_report(report: QualityReport) -> None:
         )
 
     _render_findings(report)
+    _render_outlier_review(report)
     _render_check_status(report)
 
 
@@ -159,3 +167,75 @@ def _lines(found) -> str:
     listed = ", ".join(str(row) for row in found.rows)
     remaining = found.count - len(found.rows)
     return f"{listed} +{remaining} more" if remaining > 0 else listed
+
+
+def _decisions() -> dict[str, str]:
+    return st.session_state.setdefault(DECISIONS_KEY, {})
+
+
+def _render_outlier_review(report: QualityReport) -> None:
+    """Let the portfolio manager keep or drop each flagged outlier.
+
+    Everything starts included. Excluding is the deliberate act, because on real
+    institutional data every flag we have seen was a genuine dislocation — the
+    COVID crash, February 2018 — rather than a fault. Those are the days a
+    tail-risk model most needs, so dropping one should take a decision.
+    """
+    flagged = [f for f in report.findings if f.check == "outliers"]
+    if not flagged:
+        return
+
+    excluded = sum(1 for f in flagged if f.decision == "exclude")
+    with st.expander(
+        f"Review outliers ({len(flagged)} flagged"
+        + (f", {excluded} excluded" if excluded else "")
+        + ")",
+        expanded=bool(excluded),
+    ):
+        st.caption(
+            "Flagged values are still in the data. Untick one to blank that single "
+            "cell before the forecasting engine runs — the row and every other "
+            "signal on it are kept. On clean data these are usually real market "
+            "events, not faults."
+        )
+
+        edited = st.data_editor(
+            [
+                {
+                    "Include": f.decision != "exclude",
+                    "Signal": f.signal,
+                    "Date": f.dates[0] if f.dates else "",
+                    "Value": f.value,
+                    "Why": f.detail,
+                }
+                for f in flagged
+            ],
+            width="stretch",
+            hide_index=True,
+            disabled=["Signal", "Date", "Value", "Why"],
+            column_config={
+                "Include": st.column_config.CheckboxColumn(
+                    "Include", help="Untick to exclude this value from the run", width="small"
+                ),
+                "Signal": st.column_config.TextColumn(width="medium"),
+                "Date": st.column_config.TextColumn(width="small"),
+                "Value": st.column_config.NumberColumn(width="small"),
+                "Why": st.column_config.TextColumn(width="large"),
+            },
+            key=f"outlier_review_{report.source.sha256[:12]}",
+        )
+
+        _record(flagged, edited)
+
+
+def _record(flagged: list, edited: list[dict]) -> None:
+    """Store what the editor came back with, and rerun if anything changed."""
+    decisions = _decisions()
+    changed = False
+    for found, row in zip(flagged, edited, strict=False):
+        wanted = "include" if row["Include"] else "exclude"
+        if decisions.get(found.id) != wanted:
+            decisions[found.id] = wanted
+            changed = True
+    if changed:
+        st.rerun()
