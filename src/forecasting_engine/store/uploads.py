@@ -10,18 +10,12 @@ happened and when is the point, not which distinct files exist.
 
 from __future__ import annotations
 
-import contextlib
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import duckdb
-
 from forecasting_engine.ingest.upload import AcceptedUpload
-
-#: Gitignored, because ``data/`` is.
-DEFAULT_DB_PATH: Path = Path("data/forecasting.duckdb")
+from forecasting_engine.store._db import DEFAULT_DB_PATH, connect
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS uploads (
@@ -63,7 +57,7 @@ def record_upload(
         row_count=accepted.row_count,
         uploaded_at=uploaded_at or datetime.now(),
     )
-    with _connect(db_path) as conn:
+    with connect(db_path, _CREATE_TABLE) as conn:
         conn.execute(
             "INSERT INTO uploads VALUES (?, ?, ?, ?, ?)",
             [
@@ -79,7 +73,7 @@ def record_upload(
 
 def recent_uploads(limit: int = 20, *, db_path: Path = DEFAULT_DB_PATH) -> list[UploadRecord]:
     """The most recent uploads, newest first."""
-    with _connect(db_path) as conn:
+    with connect(db_path, _CREATE_TABLE) as conn:
         rows = conn.execute(
             "SELECT sha256, filename, size_bytes, row_count, uploaded_at "
             "FROM uploads ORDER BY uploaded_at DESC LIMIT ?",
@@ -87,14 +81,3 @@ def recent_uploads(limit: int = 20, *, db_path: Path = DEFAULT_DB_PATH) -> list[
         ).fetchall()
     return [UploadRecord(*row) for row in rows]
 
-
-@contextlib.contextmanager
-def _connect(db_path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
-    """Open ``db_path``, creating the file and the table if they are absent."""
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = duckdb.connect(str(db_path))
-    try:
-        conn.execute(_CREATE_TABLE)
-        yield conn
-    finally:
-        conn.close()

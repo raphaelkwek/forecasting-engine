@@ -54,6 +54,16 @@ def upload(page, filename, data, mime="text/csv"):
     return page.run()
 
 
+def confirmation(result):
+    """The upload panel's own success message.
+
+    Schema validation adds a second success below it, so select by content
+    rather than assuming this page shows exactly one.
+    """
+    (message,) = [s for s in result.success if s.value.startswith("Accepted ")]
+    return message
+
+
 # --- AC1: a valid CSV is accepted with a confirmation ----------------------
 
 
@@ -61,14 +71,14 @@ def test_a_valid_csv_is_accepted_and_confirmed(page):
     result = upload(page, "signals.csv", VALID_CSV)
 
     assert not result.error
-    (success,) = result.success
+    success = confirmation(result)
     assert "signals.csv" in success.value
     assert "3 rows" in success.value
     assert "9 columns" in success.value
 
 
 def test_the_confirmation_reports_the_date_range(page):
-    (success,) = upload(page, "signals.csv", VALID_CSV).success
+    success = confirmation(upload(page, "signals.csv", VALID_CSV))
     assert "2026-01-02 to 2026-01-06" in success.value
 
 

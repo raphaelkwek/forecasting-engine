@@ -71,6 +71,30 @@ All columns are required.
 Percent columns are expressed in percentage points: a 3.5% spread is `3.5`, not
 `0.035`.
 
+## How violations are treated
+
+Not every violation makes a file unusable. There are two classes, and
+`ingest/validation.py` enforces the split.
+
+**Blocking.** A missing column, an unparseable date, or a non-numeric value in a
+numeric column. The file cannot be interpreted, so validation fails and the
+pipeline stops. The error names the column and, for a bad cell, the line number
+as your spreadsheet numbers it — line 1 is the header, so the first data row is
+line 2.
+
+**Reported, not blocking.** Out-of-order rows are sorted. Duplicate dates are
+resolved by keeping the last occurrence, on the assumption that a repeated date
+is a revision rather than a mistake. Values outside the ranges above are flagged
+but retained — a genuine market dislocation looks a lot like an outlier, and
+dropping it would hide exactly the events the model most needs to see.
+
+Dates must be ISO (`YYYY-MM-DD`). `01/02/2024` is rejected rather than guessed:
+it means 1 February or 2 January depending on who exported it, and that is
+precisely the ambiguity this contract exists to remove.
+
+No violation is silent. Every one is counted in the data quality report, and
+every validation run is recorded whether it passed or failed.
+
 ## What the system does with this file
 
 Forward return targets are **derived, never supplied**. `spx_fwd_5d` and
@@ -90,6 +114,21 @@ information into the past.
 
 A signal that did not yet exist on a given date is missing, not zero. Do not
 back-fill history for a series that started later; leave the cells empty.
+
+### What counts as blank
+
+An empty cell is missing data. So are `NA`, `N/A`, `n/a`, `null`, `NULL`, `nan`
+and `#N/A` — including Bloomberg's `#N/A N/A`, which its exports use freely.
+These are reported as missing and do not block validation.
+
+Anything else in a numeric column is a type error and blocks: `-`, `TBD`,
+`not reported`, and Bloomberg's longer forms `#N/A Field Not Applicable` and
+`#N/A Invalid Security` are all rejected with their line number. If your export
+carries those, replace them with empty cells before uploading.
+
+The distinction matters and is invisible in Excel — both look like text in a
+number column. Missing data is a fact about the world; a placeholder we cannot
+interpret is a fault in the file.
 
 ## Point-in-time dating
 
