@@ -57,12 +57,12 @@ The left edge of the pipeline: upload and validation.
 - **Schema validation** — required columns, per-column types and ranges,
   reporting the column, line number and date of each problem. Blocking faults
   halt the pipeline; range breaches are reported and retained.
-- **Data quality report** — rendered on the Data page from a model shared with
-  the outlier, gap and report-view tickets.
 - **Outlier detection** — flags extreme daily moves per signal, retains every
   value, and lets the portfolio manager include or exclude each one.
 - **Gap reconciliation** — checks missing dates against each signal's own market
   calendar, so holidays and weekends are not reported as missing data.
+- **Data quality report** — on the dashboard's front page: date range,
+  per-signal completeness, and every flagged observation, expandable by signal.
 - **Synthetic data** — a generator producing contract-shaped files with known
   defects, so the pipeline can be run before real exports arrive.
 
