@@ -112,3 +112,10 @@ def test_the_output_directory_is_created(tmp_path, exports):
     out = tmp_path / "nested" / "deeper" / "signals.csv"
     assert main([*map(str, exports), "-o", str(out)]) == 0
     assert out.exists()
+
+
+def test_the_default_output_lands_in_the_gitignored_data_directory():
+    # A CSV in the repository root is untracked and easy to commit by mistake.
+    from forecasting_engine.convert import DEFAULT_OUT
+
+    assert DEFAULT_OUT.parts[0] == "data"

@@ -1,6 +1,6 @@
 """Command line entry point for converting Bloomberg exports.
 
-    uv run python -m forecasting_engine.convert path/to/*.xlsx -o signals.csv
+    uv run python -m forecasting_engine.convert ~/exports/*.xlsx -o data/signals.csv
 
 Writes the CSV and prints what it did, including any signal it could not
 supply. It exits non-zero when the result would not pass schema validation, so
@@ -15,6 +15,10 @@ import sys
 from pathlib import Path
 
 from forecasting_engine.ingest.bloomberg import DEFAULT_FIELD, convert
+
+#: Under ``data/``, which is gitignored — a CSV in the repository root is
+#: untracked and easily committed by accident.
+DEFAULT_OUT = Path("data/signals.csv")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,7 +49,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("files", nargs="+", help="Bloomberg .xlsx exports")
     parser.add_argument(
-        "-o", "--out", type=Path, default=Path("signals.csv"), help="where to write the CSV"
+        "-o",
+        "--out",
+        type=Path,
+        default=DEFAULT_OUT,
+        help=f"where to write the CSV [{DEFAULT_OUT}]",
     )
     parser.add_argument(
         "--field",

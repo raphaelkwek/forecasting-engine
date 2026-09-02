@@ -44,9 +44,17 @@ only `TOT_RETURN_INDEX_GROSS_DVDS` has no `PX_LAST` column and is skipped.
 
 ## Converting
 
+Point it at the folder holding the workbooks — the shell expands the `*.xlsx`,
+so give it a real directory rather than copying this line verbatim:
+
 ```bash
-uv run python -m forecasting_engine.convert path/to/exports/*.xlsx -o signals.csv
+uv run python -m forecasting_engine.convert ~/Documents/FYP/exports/*.xlsx -o data/signals.csv
 ```
+
+If the shell answers `no matches found`, that path has no `.xlsx` files in it.
+
+Output goes under `data/` because that directory is gitignored; exported market
+data should not end up in the repository.
 
 It reads the `Data` sheet of each workbook, takes `PX_LAST`, joins everything on
 date, and writes the CSV in contract column order with ISO dates. Then upload

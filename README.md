@@ -28,11 +28,13 @@ Coming from Bloomberg? Its exports are one workbook per security, not one CSV.
 Convert them first:
 
 ```bash
-uv run python -m forecasting_engine.convert path/to/exports/*.xlsx -o signals.csv
+uv run python -m forecasting_engine.convert ~/Documents/FYP/exports/*.xlsx -o data/signals.csv
 ```
 
-See [docs/bloomberg-exports.md](docs/bloomberg-exports.md) for which securities
-to pull.
+Substitute your own export folder — the shell expands the `*.xlsx`, so
+`no matches found` means that path holds no workbooks. See
+[docs/bloomberg-exports.md](docs/bloomberg-exports.md) for which securities to
+pull.
 
 ## Checks
 
