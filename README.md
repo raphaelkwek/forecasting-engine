@@ -61,6 +61,8 @@ The left edge of the pipeline: upload and validation.
   the outlier, gap and report-view tickets.
 - **Outlier detection** — flags extreme daily moves per signal, retains every
   value, and lets the portfolio manager include or exclude each one.
+- **Gap reconciliation** — checks missing dates against each signal's own market
+  calendar, so holidays and weekends are not reported as missing data.
 - **Synthetic data** — a generator producing contract-shaped files with known
   defects, so the pipeline can be run before real exports arrive.
 
@@ -87,5 +89,7 @@ tests/                      unit, integration, functional
   design decisions for the shared report model
 - [Outlier detection](docs/outlier-detection.md) — the method, its calibration
   against real data, and the evidence for each choice
+- [Market calendars](docs/market-calendars.md) — the calendar source, the
+  per-signal mapping, and how gaps are reconciled against it
 - [Architecture design](docs/superpowers/specs/2026-07-29-forecasting-engine-architecture-design.md)
 - [Phase 0 plan](docs/superpowers/plans/2026-07-29-phase-0-scaffold-and-ingestion.md)
