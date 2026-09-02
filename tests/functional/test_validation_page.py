@@ -172,8 +172,13 @@ def test_checks_that_have_not_been_built_show_as_pending(page):
 
     caption = texts(result.caption)
     assert "Checks not yet run" in caption
-    for title in ("Outliers", "Data gaps", "Missing values"):
+    for title in ("Data gaps", "Missing values"):
         assert title in caption
+
+
+def test_outlier_detection_no_longer_shows_as_pending(page):
+    result = upload(page, csv_bytes())
+    assert "Outliers" not in texts(result.caption)
 
 
 def test_schema_does_not_appear_as_pending_once_it_has_run(page):
@@ -204,3 +209,60 @@ def test_a_blocking_report_is_still_readable(page):
     assert report.status.value == "failed"
     assert not report.passed
     assert list(report.by_signal()) == ["vix"]
+
+
+# --- FYP-9: reviewing flagged outliers on the page -------------------------
+
+
+def spiked_csv() -> bytes:
+    """A file with one obvious anomaly, inside the contract's ranges."""
+    rows = list(ROWS)
+    for i in range(60):
+        day = f"2024-02-{i % 28 + 1:02d}" if i >= 28 else f"2024-01-{i + 4:02d}"
+        rows.append(f"{day},{100 + i}.0,50.0,15.{i % 9},3.5,1.2,8.0,2.2,1.0")
+    rows[30] = rows[30].replace(",15.", ",190.", 1)
+    return csv_bytes(sorted(rows))
+
+
+def test_a_flagged_outlier_can_be_reviewed_on_the_page(page):
+    result = upload(page, spiked_csv())
+
+    report = result.session_state["quality_report"]
+    flagged = [f for f in report.findings if f.check == "outliers"]
+    assert flagged, "expected the injected spike to be flagged"
+    assert all(f.severity.value == "info" for f in flagged)
+
+
+def test_flagged_outliers_do_not_stop_the_pipeline(page):
+    result = upload(page, spiked_csv())
+
+    assert "validated_upload" in result.session_state
+    assert result.session_state["quality_report"].passed
+
+
+def test_everything_starts_included(page):
+    result = upload(page, spiked_csv())
+
+    report = result.session_state["quality_report"]
+    assert report.excluded == ()
+
+
+def test_the_prepared_frame_matches_the_upload_until_something_is_excluded(page):
+    result = upload(page, spiked_csv())
+
+    prepared = result.session_state["prepared_frame"]
+    accepted = result.session_state["accepted_upload"]
+    assert prepared.equals(accepted.frame)
+
+
+def test_the_review_control_appears_when_something_is_flagged(page):
+    # AppTest has no data_editor accessor in Streamlit 1.62, so the expander
+    # wrapping it is the testable surface.
+    result = upload(page, spiked_csv())
+    labels = [e.label for e in result.expander]
+    assert any("Review outliers" in label for label in labels), labels
+
+
+def test_no_review_control_when_nothing_is_flagged(page):
+    result = upload(page, csv_bytes())
+    assert not any("Review outliers" in e.label for e in result.expander)
