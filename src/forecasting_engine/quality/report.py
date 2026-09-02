@@ -25,6 +25,10 @@ known check, so the view has something coherent to render before ingestion
 finishes.
 
 Nothing here imports Streamlit or pandas; it is plain data.
+
+``docs/quality-report-contract.md`` records why each of these rules is the way
+it is, and which sibling ticket breaks if you change it. Read it before
+altering the severity levels, the finding id, or the pending behaviour.
 """
 
 from __future__ import annotations
