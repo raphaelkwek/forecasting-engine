@@ -25,6 +25,7 @@ hide from the quality report exactly what it exists to report.
 
 from __future__ import annotations
 
+import zipfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,11 @@ import openpyxl
 import pandas as pd
 
 from forecasting_engine.ingest.schema import COLUMNS, DATE_COLUMN, REQUIRED_COLUMNS
+
+#: Excel writes a lock file beside any workbook it has open, named for the
+#: original with this prefix. They are not workbooks, and a glob over a folder
+#: someone is working in will pick them up.
+LOCK_PREFIX = "~$"
 
 DATA_SHEET = "Data"
 METADATA_SHEET = "Metadata"
@@ -128,7 +134,13 @@ def read_export(path: Path, field: str = DEFAULT_FIELD) -> BloombergExport:
     Raises ``ValueError`` if the sheets or the field are not what we expect,
     naming what was there instead.
     """
-    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        book = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except (zipfile.BadZipFile, OSError) as exc:
+        # An .xlsx is a zip. Anything that is not one - a lock file, a truncated
+        # download, a CSV someone renamed - fails here rather than at our checks.
+        raise ValueError(f"{path.name} is not a readable .xlsx file ({exc})") from exc
+
     try:
         if DATA_SHEET not in book.sheetnames:
             raise ValueError(
@@ -231,6 +243,9 @@ def convert(
     exports = []
     skipped: list[str] = []
     for path in paths:
+        if path.name.startswith(LOCK_PREFIX):
+            skipped.append(f"{path.name}: an Excel lock file, not a workbook")
+            continue
         try:
             exports.append(read_export(path, field))
         except ValueError as exc:
