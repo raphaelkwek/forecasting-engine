@@ -146,7 +146,8 @@ def _render_findings(report: QualityReport) -> None:
             "Lines": st.column_config.TextColumn(width="medium"),
             "Date": st.column_config.TextColumn(width="small"),
             "Cells": st.column_config.NumberColumn(width="small"),
-            "Problem": st.column_config.TextColumn(width="large"),
+            # Sized to the message rather than capped, so it is never clipped.
+            "Problem": st.column_config.TextColumn(width=520),
         },
     )
 
