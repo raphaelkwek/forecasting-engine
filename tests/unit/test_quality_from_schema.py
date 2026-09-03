@@ -173,3 +173,27 @@ def test_the_report_round_trips_with_a_schema_section():
     report = quality_report(accepted, result)
 
     assert QualityReport.from_dict(report.as_dict()) == report
+
+
+def test_a_repeated_date_reports_the_date_that_repeats():
+    # "repeated dates" with no date attached leaves the reader nowhere to look.
+    rows = list(ROWS)
+    rows[2] = rows[2].replace("2024-01-03", "2024-01-02")
+    accepted, result = checked(csv_bytes(rows))
+
+    (found,) = [f for f in schema_section(result, accepted.frame).findings]
+    assert found.signal == "date"
+    assert found.dates == ("2024-01-02",)
+    assert found.rows == (4,)
+
+
+def test_an_unparseable_date_still_quotes_no_date():
+    # There is no date to name - the value did not parse. The line number is the
+    # only handle, and repeating the junk back would be circular.
+    rows = list(ROWS)
+    rows[1] = rows[1].replace("2024-01-02", "nonsense")
+    accepted, result = checked(csv_bytes(rows))
+
+    (found,) = [f for f in schema_section(result, accepted.frame).findings]
+    assert found.dates == ()
+    assert found.rows == (3,)

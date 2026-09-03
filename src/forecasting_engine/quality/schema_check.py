@@ -95,13 +95,16 @@ def _row_dates(frame: pd.DataFrame | None) -> pd.Series | None:
     return parsed.reset_index(drop=True)
 
 
-def _dates_for(issue, dates: pd.Series | None) -> tuple[str, ...]:
-    """Look up the date of each offending row.
+#: The one issue whose dates cannot be quoted back: the values did not parse,
+#: so there is no date to name. Every other date-column problem - a repeat above
+#: all - has a perfectly readable date, and that date is the whole answer to
+#: "where is it".
+_UNQUOTABLE = "unparseable_date"
 
-    Skipped for problems in the date column itself: quoting a date we could not
-    parse back at the reader would be circular.
-    """
-    if dates is None or not issue.rows or issue.column == DATE_COLUMN:
+
+def _dates_for(issue, dates: pd.Series | None) -> tuple[str, ...]:
+    """Look up the date of each offending row."""
+    if dates is None or not issue.rows or issue.kind == _UNQUOTABLE:
         return ()
     found = []
     for line in issue.rows:
