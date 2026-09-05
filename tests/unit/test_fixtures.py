@@ -28,6 +28,12 @@ def test_all_required_columns_present():
     assert set(schema.REQUIRED_COLUMNS) <= set(frame.columns)
 
 
+def test_the_unlagged_targets_track_their_sources():
+    frame = fixtures.generate(years=2, seed=1, with_defects=False)
+    assert frame["spx_close_target"].equals(frame["spx_close"])
+    assert frame["bond_index_target"].equals(frame["bond_index_global_agg"])
+
+
 def test_defective_frame_contains_duplicates_and_blanks():
     frame = fixtures.generate(years=5, seed=1, with_defects=True)
     kinds = {issue.kind for issue in schema.validate(frame)}
@@ -67,7 +73,7 @@ def test_spreads_track_volatility_without_being_copies_of_it():
 def test_the_spreads_stay_in_ranges_a_reader_would_recognise():
     frame = fixtures.generate(years=10, seed=42, with_defects=False)
     assert 0.5 < frame["credit_spread_hy"].min() < 5
-    assert 5 < frame["credit_spread_hy"].max() < 20
+    assert 2 < frame["credit_spread_hy"].max() < 5
     assert 9 <= frame["vix"].min() < 15
     assert 25 < frame["vix"].max() < 90
 

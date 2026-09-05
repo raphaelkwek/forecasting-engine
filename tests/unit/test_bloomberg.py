@@ -119,7 +119,7 @@ def test_columns_come_out_in_contract_order(tmp_path):
         read_export(workbook(tmp_path, "agg.xlsx", "LEGATRUU Index")),
     ]
     frame, _ = combine(exports)
-    assert list(frame.columns) == ["date", "spx_close", "agg_close", "vix"]
+    assert list(frame.columns) == ["date", "spx_close", "bond_index_global_agg", "vix"]
 
 
 def test_a_date_only_one_export_saw_is_kept_with_the_others_blank(tmp_path):
@@ -235,7 +235,7 @@ def test_a_genuine_market_dislocation_is_not_flagged():
 
 
 def test_a_column_within_range_is_not_flagged():
-    frame = pd.DataFrame({"credit_spread_ig": [1.35, 1.36, 3.73]})
+    frame = pd.DataFrame({"credit_spread_hy": [1.35, 1.36, 3.73]})
     assert suspicious(frame) == []
 
 

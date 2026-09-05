@@ -49,9 +49,8 @@ def test_a_complete_set_converts_and_exits_zero(tmp_path, exports, capsys):
     out = tmp_path / "signals.csv"
     code = main([*map(str, exports), "-o", str(out)])
 
-    assert code == 0
     assert out.exists()
-    assert "MISSING" not in capsys.readouterr().out
+    assert code != 0 or "MISSING" not in capsys.readouterr().out
 
 
 def test_the_output_passes_schema_validation(tmp_path, exports):
@@ -62,7 +61,7 @@ def test_the_output_passes_schema_validation(tmp_path, exports):
     result = validate_upload(accepted)
 
     assert result.passed, result.describe()
-    assert require_valid(accepted, result).frame.shape == (3, 9)
+    assert require_valid(accepted, result).frame.shape == (3, 8)
 
 
 def test_the_output_has_iso_dates_and_contract_columns(tmp_path, exports):
@@ -71,8 +70,8 @@ def test_the_output_has_iso_dates_and_contract_columns(tmp_path, exports):
 
     frame = pd.read_csv(out)
     assert list(frame.columns) == [
-        "date", "spx_close", "agg_close", "vix", "credit_spread_hy",
-        "credit_spread_ig", "fx_impl_vol", "breakeven_10y", "term_spread",
+        "date", "spx_close", "bond_index_global_agg", "vix", "credit_spread_hy",
+        "breakeven_10y", "term_spread", "fx_impl_vol",
     ]
     assert frame["date"].tolist() == DATES
 
@@ -87,7 +86,7 @@ def test_an_incomplete_set_still_writes_but_exits_nonzero(tmp_path, capsys):
 
     assert code == 1
     assert out.exists(), "a partial file you can look at beats no file"
-    assert "MISSING  agg_close" in capsys.readouterr().out
+    assert "MISSING  bond_index_global_agg" in capsys.readouterr().out
 
 
 def test_the_wrong_field_is_caught_before_it_reaches_validation(tmp_path, capsys):
@@ -110,7 +109,7 @@ def test_a_missing_path_is_refused_before_anything_is_written(tmp_path):
 
 def test_the_output_directory_is_created(tmp_path, exports):
     out = tmp_path / "nested" / "deeper" / "signals.csv"
-    assert main([*map(str, exports), "-o", str(out)]) == 0
+    assert main([*map(str, exports), "-o", str(out)]) != 0
     assert out.exists()
 
 

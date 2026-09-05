@@ -21,13 +21,15 @@ Calendars come from ``pandas_market_calendars``. See
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 from datetime import date
+from functools import lru_cache
 
 import pandas as pd
 import pandas_market_calendars as mcal
 
-from forecasting_engine.ingest.schema import COLUMNS, DATE_COLUMN
+from forecasting_engine.ingest.schema import COLUMNS, DATE_COLUMN, TARGET_COLUMNS
 from forecasting_engine.quality.report import (
     CheckStatus,
     QualityFinding,
@@ -40,16 +42,41 @@ TITLE = "Data gaps"
 
 #: Which market's calendar governs each signal. Equity and volatility follow the
 #: exchange; rates and credit follow the bond market, which keeps different
-#: holidays; FX trades on any weekday.
+#: holidays.  The calendars here match the *source* of each signal, not the
+#: instrument: a FRED series, for instance, publishes on whatever day the bond
+#: market trades, so it follows SIFMA_US; a Yahoo feed only serves days its
+#: exchange was open.
+#
+#: Two mappings are the lesson of a calendar-vs-data audit:
+#: ``bond_index_global_agg`` comes from GLBL.L, listed in London, so its gaps are
+#: the LSE's holidays (Easter Monday, the May/Summer bank holidays, Boxing Day)
+#: and it is screened against the LSE calendar.  ``dollar_index`` and
+#: ``eur_fx_vol`` look like instruments that trade all week, but their Yahoo
+#: feeds (DX-Y.NYB, ^EVZ) serve nothing on US market holidays, so plain
+#: ``weekdays`` would call Thanksgiving and Christmas missing data every year.
+#: Mapping them to the NYSE/CBOE calendars matches what their sources actually
+#: return.
 CALENDARS: Mapping[str, str] = {
     "spx_close": "NYSE",
+    "spx_close_target": "NYSE",
     "vix": "CBOE_Index_Options",
-    "agg_close": "SIFMA_US",
-    "credit_spread_hy": "SIFMA_US",
+    "bond_index_global_agg": "LSE",
+    "bond_index_target": "LSE",
+    "tnx_close": "SIFMA_US",
+    "dollar_index": "NYSE",
+    "eur_fx_vol": "CBOE_Index_Options",
     "credit_spread_ig": "SIFMA_US",
+    "credit_spread_hy": "SIFMA_US",
+    "breakeven_5y": "SIFMA_US",
     "breakeven_10y": "SIFMA_US",
     "term_spread": "SIFMA_US",
     "fx_impl_vol": "weekdays",
+    "ff_mkt_rf": "NYSE",
+    "ff_smb": "NYSE",
+    "ff_hml": "NYSE",
+    "ff_rmw": "NYSE",
+    "ff_cma": "NYSE",
+    "ff_rf": "NYSE",
 }
 
 #: For a signal with no entry above. The bond calendar is the safer default: it
@@ -61,7 +88,12 @@ DEFAULT_CALENDAR = "SIFMA_US"
 #: range counts as a session.
 WEEKDAYS = "weekdays"
 
-_SIGNALS: tuple[str, ...] = tuple(spec.name for spec in COLUMNS)
+#: Signals checked per-row.  The ``*_target`` columns are excluded: they are
+#: derived unlagged levels, not signals to screen for gaps (their sources are
+#: screened, which covers them).
+_SIGNALS: tuple[str, ...] = tuple(
+    spec.name for spec in COLUMNS if spec.name not in TARGET_COLUMNS
+)
 
 
 def calendar_for(signal: str) -> str:
@@ -74,7 +106,19 @@ def expected_sessions(calendar: str, start: date, end: date) -> set[date]:
         return set()
     if calendar == WEEKDAYS:
         return {d.date() for d in pd.bdate_range(start, end)}
-    return {d.date() for d in mcal.get_calendar(calendar).valid_days(start, end)}
+    return {d.date() for d in _calendar(calendar).valid_days(start, end)}
+
+
+@lru_cache(maxsize=None)
+def _calendar(name: str):
+    """The ``pandas_market_calendars`` instance for ``name``.
+
+    ``get_calendar`` is a factory returning a fresh instance on every call, and
+    each instance rebuilds the heavy ``CustomBusinessDay`` holiday schedule on
+    first use. The schedule never changes, so memoising the instances turns a
+    per-signal rebuild into a one-time, per-process cost.
+    """
+    return mcal.get_calendar(name)
 
 
 def detect(frame: pd.DataFrame) -> QualitySection:
@@ -94,7 +138,7 @@ def detect(frame: pd.DataFrame) -> QualitySection:
     # A date missing from the file altogether is one gap, not one per signal.
     # Reporting it eight times says the same thing eight ways and buries the
     # per-signal gaps, which are the ones that need a column name to make sense.
-    findings = _whole_file_findings(signals, present_rows)
+    findings = _whole_file_findings(frame, signals, dates, present_rows)
     for signal in signals:
         findings.extend(_findings_for(frame, signal, dates, present_rows))
 
@@ -112,17 +156,16 @@ def detect(frame: pd.DataFrame) -> QualitySection:
 
 
 def _whole_file_findings(
-    signals: list[str], present_rows: set[date]
+    frame: pd.DataFrame, signals: list[str], dates: pd.Series, present_rows: set[date]
 ) -> list[QualityFinding]:
     """Dates absent from the file entirely, reported once against the file."""
     if not present_rows or not signals:
         return []
 
-    start, end = min(present_rows), max(present_rows)
     expected: set[date] = set()
     wanted_by: dict[date, list[str]] = {}
     for signal in signals:
-        for day in expected_sessions(calendar_for(signal), start, end):
+        for day in _expected_dates(frame, signal, dates, present_rows):
             expected.add(day)
             wanted_by.setdefault(day, []).append(signal)
 
@@ -154,23 +197,69 @@ def _findings_for(
     frame: pd.DataFrame, signal: str, dates: pd.Series, present_rows: set[date]
 ) -> list[QualityFinding]:
     """Dates where the row exists but this one signal is blank."""
-    present = {
-        d.date()
-        for d in dates[pd.to_numeric(frame[signal], errors="coerce").notna().to_numpy()]
-        if not pd.isna(d)
-    }
+    present = _signal_dates(frame, signal, dates)
     if not present:
         return []
 
     calendar = calendar_for(signal)
     expected = expected_sessions(calendar, min(present), max(present))
     # Whole-file absences are reported separately; this is about blank cells.
-    absent = sorted((expected - present) & present_rows)
+    absent = sorted((_expected_dates(frame, signal, dates, present_rows) - present) & present_rows)
 
     return [
         _finding(signal, f"{calendar} says the market was open", run)
         for run in _consecutive(absent, expected)
     ]
+
+
+def _signal_dates(frame: pd.DataFrame, signal: str, dates: pd.Series) -> set[date]:
+    """Dates in the frame where ``signal`` has a value."""
+    return {
+        d.date()
+        for d in dates[pd.to_numeric(frame[signal], errors="coerce").notna().to_numpy()]
+        if not pd.isna(d)
+    }
+
+
+def _expected_dates(
+    frame: pd.DataFrame, signal: str, dates: pd.Series, present_rows: set[date]
+) -> set[date]:
+    """Sessions where the file should carry a value for ``signal``.
+
+    Two corrections against a naive "sessions of the signal's calendar" list:
+
+    1. The signal's own data range bounds how far back its calendar is asked to
+       cover.  A series that starts mid-history (GLBL.L only covers 2018+, a
+       manual export may start later) must not be expected on sessions before
+       its first value.
+    2. The one-row lag moves each observation one session forward, so the value
+       shown on a date is the one its *preceding row* observed.  When that
+       preceding row is not a session for this signal's calendar — a holiday
+       kept by another source let the row exist, and the lag then slides the
+       holiday's blank onto the next day — the blank is expected, not a gap.
+    """
+    present = _signal_dates(frame, signal, dates)
+    if not present:
+        return set()
+    calendar = calendar_for(signal)
+    sessions = expected_sessions(calendar, min(present), max(present))
+    ordered_rows = sorted(present_rows)
+    return {
+        day for day in sessions if _preceded_by_session(day, ordered_rows, sessions)
+    }
+
+
+def _preceded_by_session(day: date, ordered_rows: list[date], sessions: set[date]) -> bool:
+    """Whether the frame row before ``day`` is a trading session for the signal.
+
+    With a one-row lag, ``day``'s cell shows the previous row's observation.  If
+    that previous row fell on a holiday for this signal, the lag leaves ``day``
+    blank by design and no gap is reported.
+    """
+    position = bisect_left(ordered_rows, day)
+    if position == 0:
+        return True  # nothing precedes the leading row, and it is never expected
+    return ordered_rows[position - 1] in sessions
 
 
 def _consecutive(absent: Sequence[date], expected: set[date]) -> list[list[date]]:

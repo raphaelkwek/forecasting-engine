@@ -15,8 +15,10 @@ HOME = REPO_ROOT / "app" / "Home.py"
 DATA_PAGE = REPO_ROOT / "app" / "pages" / "1_Data.py"
 
 HEADER = (
-    "date,spx_close,agg_close,vix,credit_spread_hy,credit_spread_ig,"
-    "fx_impl_vol,breakeven_10y,term_spread"
+    "date,spx_close,bond_index_global_agg,vix,tnx_close,dollar_index,"
+    "eur_fx_vol,credit_spread_ig,"
+    "credit_spread_hy,breakeven_5y,breakeven_10y,term_spread,fx_impl_vol,"
+    "ff_mkt_rf,ff_smb,ff_hml,ff_rmw,ff_cma,ff_rf"
 )
 
 
@@ -27,7 +29,7 @@ def signals_csv(n=300, spike_at=None, blank_at=None) -> bytes:
     rows = [HEADER]
     for i, date in enumerate(dates):
         v = "" if blank_at == i else (180.0 if spike_at == i else round(vix[i], 2))
-        rows.append(f"{date},{4000 + i:.2f},{100 + i * 0.01:.3f},{v},3.50,1.20,8.00,2.20,1.00")
+        rows.append(f"{date},{4000 + i:.2f},{100 + i * 0.01:.3f},{v},4.00,100.00,10.00,1.00,3.00,2.00,8.00,2.20,10.00,0.05,0.02,0.01,0.02,0.01,0.01")  # noqa: E501
     return ("\n".join(rows) + "\n").encode()
 
 
@@ -100,7 +102,7 @@ def test_the_report_shows_what_was_ingested(tmp_path, monkeypatch):
 
     labels = {m.label: m.value for m in home.metric}
     assert labels["Rows ingested"] == "300"
-    assert labels["Signals"] == "9"
+    assert labels["Signals"] == "19"
 
 
 def test_the_report_shows_the_full_date_range(tmp_path, monkeypatch):

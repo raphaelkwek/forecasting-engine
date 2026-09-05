@@ -60,19 +60,35 @@ error message is the one the user sees.
 
 ## Columns
 
-All columns are required.
+Only `date`, `spx_close` and `vix` are **required** — a file missing any of
+them cannot be used and is rejected. The other signal columns are **optional**:
+the engine runs on whatever subset is present, and a missing optional column is
+reported as informational rather than blocking. This lets the engine run on a
+small set of signals before every feed is wired in.
 
-| Column | Type | Range | Description |
-|---|---|---|---|
-| `date` | ISO date (`YYYY-MM-DD`) | — | Trading date. Unique, ascending. |
-| `spx_close` | float | > 0 | S&P 500 index close |
-| `agg_close` | float | > 0 | Bloomberg Global Aggregate Bond Index close |
-| `vix` | float | 0 – 200 | CBOE Volatility Index |
-| `credit_spread_hy` | float | 0 – 50 | ICE BofA US High Yield option-adjusted spread, percent |
-| `credit_spread_ig` | float | 0 – 20 | ICE BofA US Investment Grade option-adjusted spread, percent |
-| `fx_impl_vol` | float | 0 – 100 | G7 FX implied volatility index |
-| `breakeven_10y` | float | -5 – 15 | 10-year inflation breakeven rate, percent |
-| `term_spread` | float | -10 – 10 | 10-year minus 2-year Treasury yield, percent |
+| Column | Type | Range | Required | Description |
+|---|---|---|---|---|
+| `date` | ISO date (`YYYY-MM-DD`) | — | yes | Trading date. Unique, ascending. |
+| `spx_close` | float | > 0 | yes | S&P 500 index close |
+| `spx_close_target` | float | > 0 | no | S&P 500 close at date *t*, unlagged — the level the model's target return is computed from (derived, never supplied) |
+| `vix` | float | 0 – 200 | yes | CBOE Volatility Index |
+| `bond_index_global_agg` | float | > 0 | no | Bloomberg Global Aggregate Bond Index close (auto-sourced from Yahoo; may be overridden) |
+| `bond_index_target` | float | > 0 | no | Bloomberg Global Aggregate close at date *t*, unlagged — the level the model's bond target return is computed from (derived, never supplied) |
+| `tnx_close` | float | 0 – 20 | no | 10-year Treasury yield, percent |
+| `dollar_index` | float | 50 – 170 | no | US Dollar Index (DXY) |
+| `eur_fx_vol` | float | 0 – 200 | no | Euro FX implied volatility |
+| `credit_spread_ig` | float | 0 – 50 | no | US IG credit spread (Moody's Baa less 10y Treasury), percent |
+| `credit_spread_hy` | float | 0 – 50 | no | US high-yield OAS, percent |
+| `breakeven_5y` | float | -5 – 15 | no | 5-year inflation breakeven rate, percent |
+| `breakeven_10y` | float | -5 – 15 | no | 10-year inflation breakeven rate, percent |
+| `term_spread` | float | -10 – 10 | no | 10-year minus 2-year Treasury yield, percent |
+| `fx_impl_vol` | float | 0 – 100 | no | G7 FX implied volatility index |
+| `ff_mkt_rf` | float | — | no | Fama-French market risk premium (Mkt-RF), percent |
+| `ff_smb` | float | — | no | Fama-French small-minus-big factor, percent |
+| `ff_hml` | float | — | no | Fama-French high-minus-low factor, percent |
+| `ff_rmw` | float | — | no | Fama-French robust-minus-weak factor, percent |
+| `ff_cma` | float | — | no | Fama-French conservative-minus-aggressive factor, percent |
+| `ff_rf` | float | — | no | Fama-French risk-free rate, percent |
 
 Percent columns are expressed in percentage points: a 3.5% spread is `3.5`, not
 `0.035`.
@@ -82,11 +98,12 @@ Percent columns are expressed in percentage points: a 3.5% spread is `3.5`, not
 Not every violation makes a file unusable. There are two classes, and
 `ingest/validation.py` enforces the split.
 
-**Blocking.** A missing column, an unparseable date, or a non-numeric value in a
-numeric column. The file cannot be interpreted, so validation fails and the
-pipeline stops. The error names the column and, for a bad cell, the line number
-as your spreadsheet numbers it — line 1 is the header, so the first data row is
-line 2.
+**Blocking.** A missing *required* column (`date`, `spx_close`, `vix`), an
+unparseable date, or a non-numeric value in a numeric column. The file cannot be
+interpreted, so validation fails and the pipeline stops. The error names the
+column and, for a bad cell, the line number as your spreadsheet numbers it —
+line 1 is the header, so the first data row is line 2. A missing *optional*
+signal column is reported but does not block.
 
 **Reported, not blocking.** Out-of-order rows are sorted. Duplicate dates are
 resolved by keeping the last occurrence, on the assumption that a repeated date
@@ -103,14 +120,21 @@ every validation run is recorded whether it passed or failed.
 
 ## What the system does with this file
 
-Forward return targets are **derived, never supplied**. `spx_fwd_5d` and
-`agg_fwd_5d` are computed from `spx_close` and `agg_close`. Do not add target
-columns to the input — they will be rejected as unknown columns are ignored and
-a supplied target would silently go unused.
+Forward return targets are **derived, never supplied**. Extraction (and
+synthetic generation) keep two **unlagged** price columns — `spx_close_target`
+(S&P 500 close) and `bond_index_target` (Bloomberg Global Aggregate close) —
+carrying the value observed at date *t*. The model's target return is computed
+from consecutive observed levels, `spx_close_target[t+1] / spx_close_target[t] - 1`
+and the same for `bond_index_target`. Do not add target columns to the input:
+they are created during extraction (or synthesis) and a supplied target would
+silently go unused.
 
-Every signal column is shifted forward by at least one trading day before any
+Every *signal* column is shifted forward by at least one trading day before any
 model sees it, so a row dated `t` carries the signal value observed at `t-1`.
-This is applied centrally and cannot be bypassed.
+The two `*_target` columns are the exception — they stay as the raw observed
+levels at `t`, because lagging them would shift the very observation the
+forecast is measured against. Both the lag and the unlagged target columns are
+applied centrally by the extraction step and cannot be bypassed.
 
 ## Missing values
 

@@ -82,7 +82,7 @@ def test_a_date_absent_from_the_file_is_reported_once_not_once_per_signal():
     # A whole missing row said eight ways buries the per-signal gaps, which are
     # the ones that need a column name to make sense.
     f = frame([d for d in DECEMBER if d != "2024-12-19"])
-    for extra in ("vix", "agg_close", "credit_spread_ig"):
+    for extra in ("vix", "bond_index_global_agg", "credit_spread"):
         f[extra] = 1.0
 
     findings = gaps_for(f)
@@ -162,7 +162,7 @@ def test_gaps_outside_the_files_own_range_are_not_invented():
 
 def test_equity_and_credit_use_different_calendars():
     assert calendar_for("spx_close") == "NYSE"
-    assert calendar_for("credit_spread_ig") == "SIFMA_US"
+    assert calendar_for("credit_spread_hy") == "SIFMA_US"
 
 
 def test_an_unmapped_signal_falls_back_to_the_default():

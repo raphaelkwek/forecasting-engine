@@ -77,7 +77,18 @@ def render(accepted: AcceptedUpload) -> None:
 
     st.session_state[VALIDATED_KEY] = validated
     st.success(_pass_message(result))
+    _render_download(accepted)
     _render_report(report)
+
+
+def _render_download(accepted: AcceptedUpload) -> None:
+    csv_bytes = accepted.frame.to_csv(index=False).encode()
+    st.download_button(
+        "Download full CSV",
+        data=csv_bytes,
+        file_name="signals.csv",
+        mime="text/csv",
+    )
 
 
 def _pass_message(result: ValidationResult) -> str:
@@ -139,7 +150,7 @@ def _render_findings(report: QualityReport) -> None:
         width="stretch",
         hide_index=True,
         # The signal name is the answer to "where is the problem", so it must
-        # never truncate. Auto-sizing clips the longer ones (credit_spread_hy).
+        # never truncate. Auto-sizing clips the longer ones.
         column_config={
             "Severity": st.column_config.TextColumn(width="small"),
             "Signal": st.column_config.TextColumn(width="medium"),

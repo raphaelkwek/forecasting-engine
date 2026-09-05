@@ -77,7 +77,7 @@ def _render_confirmation(accepted: AcceptedUpload) -> None:
         f"{len(accepted.frame.columns)} columns{span}."
     )
     st.caption(f"Content hash {accepted.source.short_hash}")
-    st.dataframe(accepted.frame.head(10), width="stretch")
+    ui.preview(accepted.frame)
 
 
 def _render_history() -> None:

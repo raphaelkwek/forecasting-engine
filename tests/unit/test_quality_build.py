@@ -10,7 +10,7 @@ from forecasting_engine.quality.build import apply_decisions, build_report, with
 from forecasting_engine.quality.report import CheckStatus
 
 HEADER = (
-    "date,spx_close,agg_close,vix,credit_spread_hy,credit_spread_ig,"
+    "date,spx_close,bond_index_global_agg,vix,credit_spread,"
     "fx_impl_vol,breakeven_10y,term_spread"
 )
 
@@ -24,7 +24,7 @@ def csv_bytes(n=300, spike_at=None, spike=180.0, break_column=None):
         v = spike if spike_at == i else round(vix[i], 2)
         rows.append(
             f"{date},{4000 + i:.2f},{100 + i * 0.01:.3f},{v},"
-            f"{3.5 + rng.normal(0, 0.02):.2f},1.2,8.0,2.2,1.0"
+            f"{3.5 + rng.normal(0, 0.02):.2f},1.2,8.0,2.2"
         )
     if break_column:
         rows[3] = rows[3].replace(",15", ",oops", 1)

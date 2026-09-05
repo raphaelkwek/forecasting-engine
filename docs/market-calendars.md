@@ -3,7 +3,7 @@
 How the engine decides whether a date missing from an upload is a real gap or a
 day the market was shut. Written for auditability: every choice below is
 reproducible against the ten years of Bloomberg daily data available on
-2026-09-03 — `spx_close`, `agg_close`, `vix`, `credit_spread_ig` and
+2026-09-03 — `spx_close`, `bond_index_global_agg`, `vix`, `credit_spread` and
 `breakeven_10y`, 2,610 rows.
 
 ## The source
@@ -34,9 +34,8 @@ one.
 |---|---|---|
 | `spx_close` | `NYSE` | New York Stock Exchange |
 | `vix` | `CBOE_Index_Options` | Cboe index options |
-| `agg_close` | `SIFMA_US` | US bond market |
-| `credit_spread_hy` | `SIFMA_US` | US bond market |
-| `credit_spread_ig` | `SIFMA_US` | US bond market |
+| `bond_index_global_agg` | `SIFMA_US` | US bond market |
+| `credit_spread` | `SIFMA_US` | US bond market |
 | `breakeven_10y` | `SIFMA_US` | US bond market |
 | `term_spread` | `SIFMA_US` | US bond market |
 | `fx_impl_vol` | weekdays | FX trades continuously on weekdays |
@@ -61,7 +60,7 @@ equity calendar reports both days as missing data, every year. That single
 mismatch accounts for most of the 18.
 
 In the other direction, the bond market trades on days the exchange does not, so
-`agg_close` and `breakeven_10y` legitimately carry 87 and 93 observations that
+`bond_index_global_agg` and `breakeven_10y` legitimately carry 87 and 93 observations that
 fall outside the NYSE calendar entirely.
 
 ## The reconciliation
@@ -90,7 +89,7 @@ the severity rules in [the quality report contract](quality-report-contract.md).
 One flagged gap across five signals over ten years:
 
 ```
-credit_spread_ig   1 session missing (2018-12-05); SIFMA_US says the market was open
+credit_spread   1 session missing (2018-12-05); SIFMA_US says the market was open
 ```
 
 ## Known limitation: ad-hoc closures

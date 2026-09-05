@@ -18,11 +18,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGE = REPO_ROOT / "app" / "pages" / "1_Data.py"
 
 VALID_CSV = (
-    b"date,spx_close,agg_close,vix,credit_spread_hy,credit_spread_ig,"
-    b"fx_impl_vol,breakeven_10y,term_spread\n"
-    b"2026-01-02,4750.5,102.3,13.2,3.41,1.12,8.4,2.31,0.62\n"
-    b"2026-01-05,4762.1,102.1,12.9,3.38,1.11,8.3,2.33,0.64\n"
-    b"2026-01-06,4739.8,102.6,14.1,3.55,1.15,8.9,2.29,0.59\n"
+    b"date,spx_close,bond_index_global_agg,vix,tnx_close,dollar_index,"
+    b"eur_fx_vol,credit_spread_ig,"
+    b"credit_spread_hy,breakeven_5y,breakeven_10y,term_spread,fx_impl_vol,"
+    b"ff_mkt_rf,ff_smb,ff_hml,ff_rmw,ff_cma,ff_rf\n"
+    b"2026-01-02,4750.5,102.3,13.2,4.0,100.0,10.0,1.0,3.0,2.0,8.4,2.31,1.12,0.05,0.02,0.01,0.02,0.01,0.01\n"
+    b"2026-01-05,4762.1,102.1,12.9,4.1,101.0,11.0,1.1,3.1,2.1,8.3,2.33,1.11,0.02,0.01,0.02,0.01,0.01,0.01\n"
+    b"2026-01-06,4739.8,102.6,14.1,4.2,102.0,12.0,1.2,3.2,2.2,8.9,2.29,1.15,0.01,0.03,0.01,0.02,0.01,0.01\n"
 )
 
 XLSX_BYTES = b"PK\x03\x04\x14\x00\x08\x08\x08\x00" + bytes(range(256)) * 4
@@ -74,7 +76,7 @@ def test_a_valid_csv_is_accepted_and_confirmed(page):
     success = confirmation(result)
     assert "signals.csv" in success.value
     assert "3 rows" in success.value
-    assert "9 columns" in success.value
+    assert "19 columns" in success.value
 
 
 def test_the_confirmation_reports_the_date_range(page):
@@ -88,6 +90,44 @@ def test_a_valid_upload_is_written_to_the_history_log(page, tmp_path):
     (row,) = recent_uploads(db_path=tmp_path / "data" / "forecasting.duckdb")
     assert row.filename == "signals.csv"
     assert row.row_count == 3
+
+
+def test_the_preview_shows_the_earliest_rows_of_a_long_file(page):
+    # Revert of the dual render: a file longer than the preview window shows one
+    # table of its earliest rows, the window in which every source — the
+    # Fama-French factors included — has data. The newest rows, past where the
+    # factors publish, are cut off.
+    extra = b"".join(
+        (
+            f"2026-01-{day:02d},4750.5,102.3,13.2,4.0,100.0,10.0,1.0,3.0,2.0,"
+            "8.4,2.31,1.12,0.05,0.02,0.01,0.02,0.01,0.01\n"
+        ).encode()
+        for day in range(9, 17)
+    )
+    result = upload(page, "long.csv", VALID_CSV + extra)
+
+    marks = [m.value for m in result.markdown]
+    assert "Newest rows" not in " ".join(marks)
+
+    (preview,) = [d.value for d in result.dataframe if "date" in d.value.columns]
+    assert str(preview["date"].iloc[0])[:10] == "2026-01-02"  # the earliest date
+    assert str(preview["date"].iloc[-1])[:10] == "2026-01-15"  # newest is cut off
+    assert preview["ff_mkt_rf"].iloc[0] == 0.05  # a Fama-French value is shown
+
+
+def test_the_confirmation_explains_empty_cells_instead_of_silently_drawing_them(page):
+    # The preview caption must answer "why is this blank" where the user can see
+    # it, not force a trip to a spreadsheet. Past a fully-populated file it says
+    # nothing; past one with blanks it names the column and the count.
+    upload(page, "signals.csv", VALID_CSV)
+    contents = "\n".join(c.value for c in page.caption)
+    assert "Empty cells:" not in contents
+
+    gap = VALID_CSV.replace(b",4739.8,102.6,14.1,", b",,,,")
+    upload(page, "gap.csv", gap)
+    contents = "\n".join(c.value for c in page.caption)
+    assert "Empty cells:" in contents
+    assert "spx_close" in contents
 
 
 def test_the_uploaded_file_is_kept_for_later_pages(page):

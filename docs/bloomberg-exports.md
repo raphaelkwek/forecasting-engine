@@ -13,13 +13,19 @@ shape of a Bloomberg history export, so nothing special is required — but the
 filename. A workbook named after the right ticker but holding the wrong one is
 the failure this has already hit once.
 
+The engine's CSV readers (the extract panel's manual-signal uploaders and the
+`data_sources/bloomberg` override directory) accept a Bloomberg-style export
+directly: the date column is recognised case-insensitively (`Date`, `Dates`,
+`trade date`, …) and any one numeric value column works, so a `Dates,PX_LAST`
+CSV can be uploaded or dropped in as-is — no renaming to a literal `date`
+header required.
+
 | Contract column | Bloomberg security | Field |
 |---|---|---|
 | `spx_close` | `SPX Index` | `PX_LAST` |
-| `agg_close` | `LEGATRUU Index` | `PX_LAST` |
+| `bond_index_global_agg` | `LEGATRUU Index` | `PX_LAST` |
 | `vix` | `VIX Index` | `PX_LAST` |
-| `credit_spread_hy` | **`LF98OAS Index`** | `PX_LAST` |
-| `credit_spread_ig` | `LUACOAS Index` | `PX_LAST` |
+| `credit_spread` | **`LF98OAS Index`** | `PX_LAST` |
 | `fx_impl_vol` | **`JPMVXYG7 Index`** | `PX_LAST` |
 | `breakeven_10y` | `USGGBE10 Index` | `PX_LAST` |
 | `term_spread` | `USGG10YR Index` **and** `USGG2YR Index` | `PX_LAST` |
@@ -72,11 +78,11 @@ ticker, what to export instead:
 
 ```
 Wrote 2,610 rows covering 5 of 8 signals.
-  ok       agg_close          LEGATRUU Index
+  ok       bond_index_global_agg          LEGATRUU Index
   ...
   skipped  credit_spread_Data_LF98OAS_Index__values.xlsx: LF98TRUU Index is the
            high yield total return index, not its spread — re-export LF98OAS
-           Index for credit_spread_hy
+           Index for credit_spread
   MISSING  term_spread        no export supplied this
 ```
 

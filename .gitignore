@@ -12,3 +12,6 @@ data/
 
 # Machine-local Claude Code settings; launch.json is shared.
 .claude/settings.local.json
+
+# API keys — never commit
+.env

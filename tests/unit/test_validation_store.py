@@ -13,11 +13,13 @@ from forecasting_engine.store.validations import (
 )
 
 HEADER = (
-    "date,spx_close,agg_close,vix,credit_spread_hy,credit_spread_ig,"
-    "fx_impl_vol,breakeven_10y,term_spread"
+    "date,spx_close,bond_index_global_agg,vix,tnx_close,dollar_index,"
+    "eur_fx_vol,credit_spread_ig,"
+    "credit_spread_hy,breakeven_5y,breakeven_10y,term_spread,fx_impl_vol,"
+    "ff_mkt_rf,ff_smb,ff_hml,ff_rmw,ff_cma,ff_rf"
 )
-GOOD = f"{HEADER}\n2024-01-01,100.0,50.0,15.0,3.5,1.2,8.0,2.2,1.0\n".encode()
-BAD_TYPE = f"{HEADER}\n2024-01-01,100.0,50.0,oops,3.5,1.2,8.0,2.2,1.0\n".encode()
+GOOD = f"{HEADER}\n2024-01-01,100.0,50.0,15.0,4.0,100.0,10.0,1.0,3.0,2.0,8.0,2.2,10.0,0.05,0.02,0.01,0.02,0.01,0.01\n".encode()  # noqa: E501
+BAD_TYPE = f"{HEADER}\n2024-01-01,100.0,50.0,oops,4.0,100.0,10.0,1.0,3.0,2.0,8.0,2.2,10.0,0.05,0.02,0.01,0.02,0.01,0.01\n".encode()  # noqa: E501
 
 
 @pytest.fixture

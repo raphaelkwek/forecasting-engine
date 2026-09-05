@@ -12,13 +12,23 @@ def valid_frame() -> pd.DataFrame:
         {
             "date": ["2024-01-01", "2024-01-02", "2024-01-03"],
             "spx_close": [100.0, 101.0, 102.0],
-            "agg_close": [50.0, 50.1, 50.2],
+            "bond_index_global_agg": [50.0, 50.1, 50.2],
             "vix": [15.0, 16.0, 17.0],
-            "credit_spread_hy": [3.5, 3.6, 3.7],
-            "credit_spread_ig": [1.2, 1.2, 1.3],
-            "fx_impl_vol": [8.0, 8.1, 8.2],
-            "breakeven_10y": [2.2, 2.2, 2.3],
-            "term_spread": [1.0, 1.0, 1.1],
+            "tnx_close": [4.0, 4.1, 4.2],
+            "dollar_index": [100.0, 101.0, 102.0],
+            "eur_fx_vol": [10.0, 11.0, 12.0],
+            "credit_spread_ig": [1.0, 1.1, 1.2],
+            "credit_spread_hy": [3.0, 3.1, 3.2],
+            "breakeven_5y": [2.0, 2.1, 2.2],
+            "breakeven_10y": [8.0, 8.1, 8.2],
+            "term_spread": [2.2, 2.3, 2.4],
+            "fx_impl_vol": [10.0, 11.0, 12.0],
+            "ff_mkt_rf": [0.05, 0.02, 0.01],
+            "ff_smb": [0.02, 0.01, 0.03],
+            "ff_hml": [0.01, 0.02, 0.01],
+            "ff_rmw": [0.02, 0.01, 0.02],
+            "ff_cma": [0.01, 0.01, 0.01],
+            "ff_rf": [0.01, 0.01, 0.01],
         }
     )
 
@@ -77,6 +87,15 @@ def test_signal_columns_exclude_prices():
     assert "vix" in schema.SIGNAL_COLUMNS
 
 
+def test_target_columns_are_known_but_not_expected_from_uploads():
+    # The unlagged targets appear in extraction output, but a user file is
+    # never expected to carry them — so they are neither optional nor signals.
+    assert {"spx_close_target", "bond_index_target"} <= {c.name for c in schema.COLUMNS}
+    assert schema.TARGET_COLUMNS
+    assert all(t not in schema.OPTIONAL_COLUMNS for t in schema.TARGET_COLUMNS)
+    assert all(t not in schema.SIGNAL_COLUMNS for t in schema.TARGET_COLUMNS)
+
+
 def test_missing_date_does_not_hide_other_problems():
     frame = valid_frame().drop(columns=["date"])
     frame.loc[1, "vix"] = 300.0
@@ -85,10 +104,10 @@ def test_missing_date_does_not_hide_other_problems():
 
 
 def test_missing_column_detail_names_the_series():
-    frame = valid_frame().drop(columns=["credit_spread_hy"])
+    frame = valid_frame().drop(columns=["credit_spread_ig"])
     detail = schema.validate(frame)[0].detail
-    spec = next(c for c in schema.COLUMNS if c.name == "credit_spread_hy")
-    assert "credit_spread_hy" in detail
+    spec = next(c for c in schema.COLUMNS if c.name == "credit_spread_ig")
+    assert "credit_spread_ig" in detail
     assert spec.description in detail
 
 

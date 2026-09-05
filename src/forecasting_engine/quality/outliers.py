@@ -10,7 +10,7 @@ Three choices define the method, each forced by what the real data did.
 series has a level distribution wide enough to swallow almost anything: dividing
 one `spx_close` by ten — the classic misplaced decimal — scored 2.5 standard
 deviations as a level, well under any usable threshold, and 32.7 as a change.
-Level-based detection on `spx_close` and `agg_close` flagged nothing at all, at
+Level-based detection on `spx_close` and `bond_index_global_agg` flagged nothing at all, at
 any threshold, on ten years of Bloomberg data.
 
 **Spread is measured by median absolute deviation, not standard deviation.**
@@ -39,7 +39,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
-from forecasting_engine.ingest.schema import COLUMNS, DATE_COLUMN
+from forecasting_engine.ingest.schema import COLUMNS, DATE_COLUMN, TARGET_COLUMNS
 from forecasting_engine.quality.report import (
     CheckStatus,
     QualityFinding,
@@ -65,7 +65,9 @@ THRESHOLDS: Mapping[str, float] = {}
 #: absolute deviation on the same scale as a standard deviation.
 _MAD_TO_SIGMA = 0.6745
 
-_SIGNALS: tuple[str, ...] = tuple(spec.name for spec in COLUMNS)
+_SIGNALS: tuple[str, ...] = tuple(
+    spec.name for spec in COLUMNS if spec.name not in TARGET_COLUMNS
+)
 
 
 def threshold_for(signal: str) -> float:

@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from forecasting_engine.ingest.schema import COLUMNS
+
 TONES: tuple[str, ...] = ("neutral", "info", "success", "warning", "danger")
 
 _CSS = """
@@ -125,3 +127,50 @@ def status_row(name: str, badge: str, meta: str = "") -> str:
 def eyebrow(text: str) -> str:
     """A small uppercase section label."""
     return f'<div class="fe-eyebrow">{text}</div>'
+
+
+def preview(frame, *, rows: int = 10) -> None:
+    """Show the earliest rows, the window in which every source has data.
+
+    A real extraction starts 2016-09-01 and the Ken French factors are populated
+    from the next day, so ``head(rows)`` shows the Fama-French columns filled.
+    The newest rows sit past where that library publishes and are cut off; the
+    caption says, per column, where each source's coverage starts and ends, so
+    the trailing ff_* gap is explained rather than hidden.
+    """
+    total = len(frame)
+    dates = frame["date"]
+    names = {c.name: c.description for c in COLUMNS}
+
+    parts = []
+    for column in frame.columns:
+        if column == "date":
+            continue
+        count = int(frame[column].isna().sum())
+        if not count:
+            continue
+        label = names.get(column, column)
+        first = frame[column].first_valid_index()
+        if first is None:
+            parts.append(
+                f"**{column}** ({label}): no values in any of {total:,} rows"
+            )
+            continue
+        last = frame[column].last_valid_index()
+        lead = frame.index.get_loc(first)
+        trail = total - frame.index.get_loc(last) - 1
+        inner = count - lead - trail
+        bits = []
+        if lead:
+            bits.append(f"starts {str(dates.loc[first])[:10]}")
+        if trail:
+            bits.append(f"ends {str(dates.loc[last])[:10]}")
+        if inner:
+            bits.append(f"{inner:,} inner rows missing")
+        bits.append(f"empty in {count:,}/{total:,} rows")
+        parts.append(f"**{column}** ({label}): {'; '.join(bits)}")
+    if parts:
+        st.caption("Empty cells: " + "; ".join(parts) + ".")
+
+    date_col = st.column_config.DateColumn(width="small")
+    st.dataframe(frame.head(rows), width="stretch", column_config={"date": date_col})

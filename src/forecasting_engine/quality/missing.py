@@ -18,13 +18,17 @@ from __future__ import annotations
 
 import pandas as pd
 
-from forecasting_engine.ingest.schema import COLUMNS
+from forecasting_engine.ingest.schema import COLUMNS, TARGET_COLUMNS
 from forecasting_engine.quality.report import CheckStatus, QualitySection
 
 CHECK = "missing"
 TITLE = "Missing values"
 
-_SIGNALS: tuple[str, ...] = tuple(spec.name for spec in COLUMNS)
+#: Signals this section counts.  The ``*_target`` columns are derived unlagged
+#: levels, not signals, so they are screened through their sources alone.
+_SIGNALS: tuple[str, ...] = tuple(
+    spec.name for spec in COLUMNS if spec.name not in TARGET_COLUMNS
+)
 
 
 def detect(frame: pd.DataFrame) -> QualitySection:

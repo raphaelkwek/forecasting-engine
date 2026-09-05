@@ -22,13 +22,15 @@ from forecasting_engine.store.validations import (
 )
 
 HEADER = (
-    "date,spx_close,agg_close,vix,credit_spread_hy,credit_spread_ig,"
-    "fx_impl_vol,breakeven_10y,term_spread"
+    "date,spx_close,bond_index_global_agg,vix,tnx_close,dollar_index,"
+    "eur_fx_vol,credit_spread_ig,"
+    "credit_spread_hy,breakeven_5y,breakeven_10y,term_spread,fx_impl_vol,"
+    "ff_mkt_rf,ff_smb,ff_hml,ff_rmw,ff_cma,ff_rf"
 )
 ROWS = [
-    "2024-01-01,100.0,50.0,15.0,3.5,1.2,8.0,2.2,1.0",
-    "2024-01-02,101.0,50.1,16.0,3.6,1.2,8.1,2.2,1.0",
-    "2024-01-03,102.0,50.2,17.0,3.7,1.3,8.2,2.3,1.1",
+    "2024-01-01,100.0,50.0,15.0,4.0,100.0,10.0,1.0,3.0,2.0,8.0,2.2,10.0,0.05,0.02,0.01,0.02,0.01,0.01",
+    "2024-01-02,101.0,50.1,16.0,4.1,101.0,11.0,1.1,3.1,2.1,8.1,2.3,11.0,0.02,0.01,0.02,0.01,0.01,0.01",
+    "2024-01-03,102.0,50.2,17.0,4.2,102.0,12.0,1.2,3.2,2.2,8.2,2.4,12.0,0.01,0.03,0.01,0.02,0.01,0.01",
 ]
 
 
@@ -56,7 +58,7 @@ def test_a_conforming_file_reaches_the_preparation_gate():
 
     validated = require_valid(accepted, result)
     assert isinstance(validated, ValidatedUpload)
-    assert validated.frame.shape == (3, 9)
+    assert validated.frame.shape == (3, 19)
     assert validated.source.sha256 == accepted.source.sha256
 
 
@@ -139,4 +141,4 @@ def test_re_uploading_a_fixed_file_supersedes_the_earlier_verdict():
 
     assert len(recent_validations()) == 2
     assert recent_validations()[0].passed is True
-    assert require_valid(fixed_accepted, fixed_result).frame.shape == (3, 9)
+    assert require_valid(fixed_accepted, fixed_result).frame.shape == (3, 19)

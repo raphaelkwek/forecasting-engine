@@ -33,7 +33,7 @@ from pathlib import Path
 import openpyxl
 import pandas as pd
 
-from forecasting_engine.ingest.schema import COLUMNS, DATE_COLUMN, REQUIRED_COLUMNS
+from forecasting_engine.ingest.schema import ALL_COLUMNS, COLUMNS, DATE_COLUMN
 
 #: Excel writes a lock file beside any workbook it has open, named for the
 #: original with this prefix. They are not workbooks, and a glob over a folder
@@ -48,12 +48,14 @@ DEFAULT_FIELD = "PX_LAST"
 #: the Metadata sheet, because filenames have proven unreliable.
 TICKER_MAP: Mapping[str, str] = {
     "SPX Index": "spx_close",
-    "LEGATRUU Index": "agg_close",
+    "LEGATRUU Index": "bond_index_global_agg",
     "VIX Index": "vix",
     "LF98OAS Index": "credit_spread_hy",
-    "LUACOAS Index": "credit_spread_ig",
     "JPMVXYG7 Index": "fx_impl_vol",
     "USGGBE10 Index": "breakeven_10y",
+    # The investment-grade spread has no standard Bloomberg ticker we can rely
+    # on across terminals; leave a slot rather than guess one.
+    # "LUACOAS Index": "credit_spread_ig",
 }
 
 #: Columns computed from other exports rather than pulled directly.
@@ -63,11 +65,14 @@ DERIVED: Mapping[str, tuple[str, str]] = {
     "term_spread": ("USGG10YR Index", "USGG2YR Index"),
 }
 
+#: Tickers that feed a derived column rather than supplying one directly.
+DERIVED_TICKERS: frozenset[str] = frozenset(t for legs in DERIVED.values() for t in legs)
+
 #: Tickers close enough to a wanted one to be worth naming when they turn up.
 NEAR_MISSES: Mapping[str, str] = {
     "LF98TRUU Index": (
         "the high yield total return index, not its spread — "
-        "re-export LF98OAS Index for credit_spread_hy"
+        "re-export LF98OAS Index for credit_spread"
     ),
     "JPMVXYGL Index": (
         "the global FX volatility index, not the G7 one — "
@@ -116,7 +121,7 @@ class ConversionReport:
 
     def describe(self) -> str:
         lines = [f"Wrote {self.rows:,} rows covering {len(self.used)} of "
-                 f"{len(REQUIRED_COLUMNS) - 1} signals."]
+                 f"{len(ALL_COLUMNS) - 1} signals."]
         for column, security in sorted(self.used.items()):
             lines.append(f"  ok       {column:<18} {security}")
         for note in self.skipped:
@@ -179,7 +184,7 @@ def combine(exports: Sequence[BloombergExport]) -> tuple[pd.DataFrame, Conversio
     skipped: list[str] = []
 
     for export in exports:
-        if export.security in _derived_tickers():
+        if export.security in DERIVED_TICKERS:
             legs[export.security] = export.series
             continue
         column = export.column
@@ -201,7 +206,7 @@ def combine(exports: Sequence[BloombergExport]) -> tuple[pd.DataFrame, Conversio
     return frame, ConversionReport(
         used=supplied,
         skipped=skipped,
-        missing=[c for c in REQUIRED_COLUMNS if c != DATE_COLUMN and c not in placed],
+        missing=[c for c in ALL_COLUMNS if c != DATE_COLUMN and c not in placed],
         warnings=suspicious(frame),
         rows=len(frame),
     )
@@ -286,10 +291,6 @@ def _series(rows: Sequence[tuple], position: int) -> pd.Series:
     return pd.Series(values, index=pd.Index(dates, name=DATE_COLUMN)).sort_index()
 
 
-def _derived_tickers() -> frozenset[str]:
-    return frozenset(t for legs in DERIVED.values() for t in legs)
-
-
 def _derive(
     placed: dict[str, pd.Series], supplied: dict[str, str], legs: dict[str, pd.Series]
 ) -> list[str]:
@@ -314,7 +315,7 @@ def _assemble(placed: Mapping[str, pd.Series]) -> pd.DataFrame:
         return pd.DataFrame(columns=[DATE_COLUMN])
     frame = pd.DataFrame(placed).sort_index()
     frame.index.name = DATE_COLUMN
-    ordered = [c for c in REQUIRED_COLUMNS if c != DATE_COLUMN and c in frame.columns]
+    ordered = [c for c in ALL_COLUMNS if c != DATE_COLUMN and c in frame.columns]
     return frame[ordered].reset_index()
 
 

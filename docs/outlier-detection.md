@@ -2,7 +2,7 @@
 
 How the engine decides a signal value is extreme, and why it is done this way.
 Every number below was measured on the ten years of Bloomberg daily data
-available on 2026-09-02 — `spx_close`, `agg_close`, `vix`, `credit_spread_ig`
+available on 2026-09-02 — `spx_close`, `bond_index_global_agg`, `vix`, `credit_spread`
 and `breakeven_10y`, 2,610 rows — not chosen from a textbook.
 
 ## The method
@@ -36,7 +36,7 @@ scores as follows:
 
 At any threshold high enough to be useful, level-based detection misses both.
 Worse, it misses them silently: across the real data, level-based detection
-flagged **zero** points in `spx_close` and `agg_close` by every method tried.
+flagged **zero** points in `spx_close` and `bond_index_global_agg` by every method tried.
 
 ## Why median absolute deviation, not standard deviation
 
@@ -93,15 +93,15 @@ and each is a genuine observation. On the real data this collapsed 44 flags to
 ## Per-signal thresholds
 
 `THRESHOLDS` is deliberately empty. On the real data, `vix` and the credit
-spreads flag two to three times as often as the rest:
+spread flag two to three times as often as the rest:
 
 | Signal | Flags at threshold 8 |
 |---|---|
 | `vix` | 14 |
-| `credit_spread_ig` | 17 |
+| `credit_spread` | 17 |
 | `spx_close` | 6 |
 | `breakeven_10y` | 3 |
-| `agg_close` | 1 |
+| `bond_index_global_agg` | 1 |
 
 That is a real difference in tail thickness, and it is tempting to raise their
 thresholds. It should not be done yet: **every one of those flags was a genuine
@@ -116,7 +116,7 @@ Run against clean institutional data, the top flags were:
 | Signal | Date | Move | What it was |
 |---|---|---|---|
 | `vix` | 2020-03-16 | 57.83 → 82.69 | COVID crash |
-| `credit_spread_ig` | 2020-03-19 | 2.85 → 3.29 | COVID credit stress |
+| `credit_spread` | 2020-03-19 | 2.85 → 3.29 | COVID credit stress |
 | `vix` | 2018-02-05 | 17.31 → 37.32 | "Volmageddon" |
 | `spx_close` | 2025-04-09 | 4982.77 → 5456.90 | Tariff-announcement rebound |
 

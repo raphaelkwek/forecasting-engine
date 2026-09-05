@@ -3,6 +3,17 @@
 This module is the single source of truth for what a valid input file looks
 like. ``docs/data-specification.md`` is the human-readable twin; change both or
 neither.
+
+Columns are split into REQUIRED and OPTIONAL.  A missing required column is
+blocking; a missing optional column is informational only.  This lets the
+engine run on a subset of signals (e.g. the 5 currently auto-sourced ones)
+without producing blocking validation errors for signals that haven't been
+added yet.
+
+The two ``*_target`` columns are the exception: they are pipeline-internal
+unlagged price levels (created during extraction or synthesis, never supplied
+by an uploader), so they are known to the schema but sit in neither bucket —
+a file without them is not incomplete.
 """
 
 from __future__ import annotations
@@ -64,21 +75,97 @@ class SchemaIssue:
         return f"{where}, {plural} {lines}"
 
 
-PRICE_COLUMNS: tuple[str, ...] = ("spx_close", "agg_close")
+PRICE_COLUMNS: tuple[str, ...] = (
+    "spx_close",
+    "bond_index_global_agg",
+    "spx_close_target",
+    "bond_index_target",
+)
+
+#: Unlagged observed price levels the model forecasts the return of.  They are
+#: created during extraction (a copy of the source before the lag) or during
+#: synthesis, never supplied by an uploader, so they are excluded from
+#: ``OPTIONAL_COLUMNS`` and from the quality checks' per-signal screening.
+TARGET_COLUMNS: tuple[str, ...] = ("spx_close_target", "bond_index_target")
+
+#: Columns the extraction's final output must not carry: the bond target twin
+#: (a pipeline-internal unlagged level) and the discontinued high-yield OAS
+#: (FRED serves it only from 2023, and the override window still lags). They
+#: stay in COLUMNS as an upload contract; ``extract.clean_output`` drops them,
+#: so ``OPTIONAL_COLUMNS`` must not report them as missing either.
+OUTPUT_DROPPED_COLUMNS: tuple[str, ...] = ("bond_index_target", "credit_spread_hy")
 
 COLUMNS: tuple[ColumnSpec, ...] = (
     ColumnSpec("spx_close", minimum=0.0, description="S&P 500 index close"),
-    ColumnSpec("agg_close", minimum=0.0, description="Bloomberg Global Aggregate close"),
+    ColumnSpec(
+        "spx_close_target",
+        minimum=0.0,
+        description=(
+            "S&P 500 close at date t, unlagged — the level the model's target "
+            "return is computed from"
+        ),
+    ),
+    ColumnSpec(
+        "bond_index_global_agg",
+        minimum=0.0,
+        description="Bloomberg Global Aggregate close",
+    ),
+    ColumnSpec(
+        "bond_index_target",
+        minimum=0.0,
+        description=(
+            "Bloomberg Global Aggregate close at date t, unlagged — the level "
+            "the model's bond target return is computed from"
+        ),
+    ),
     ColumnSpec("vix", minimum=0.0, maximum=200.0, description="CBOE Volatility Index"),
+    ColumnSpec("tnx_close", minimum=0.0, maximum=20.0, description="10-year Treasury yield"),
+    ColumnSpec("dollar_index", minimum=50.0, maximum=170.0, description="US Dollar Index"),
+    ColumnSpec("eur_fx_vol", minimum=0.0, maximum=200.0, description="Euro FX implied volatility"),
+    ColumnSpec("credit_spread_ig", minimum=0.0, maximum=50.0, description="US IG credit spread (Moody's Baa less 10y Treasury), percent"),
     ColumnSpec("credit_spread_hy", minimum=0.0, maximum=50.0, description="US HY OAS, percent"),
-    ColumnSpec("credit_spread_ig", minimum=0.0, maximum=20.0, description="US IG OAS, percent"),
-    ColumnSpec("fx_impl_vol", minimum=0.0, maximum=100.0, description="G7 FX implied volatility"),
+    ColumnSpec("breakeven_5y", minimum=-5.0, maximum=15.0, description="5y breakeven, percent"),
     ColumnSpec("breakeven_10y", minimum=-5.0, maximum=15.0, description="10y breakeven, percent"),
     ColumnSpec("term_spread", minimum=-10.0, maximum=10.0, description="10y minus 2y, percent"),
+    ColumnSpec("fx_impl_vol", minimum=0.0, maximum=100.0, description="G7 FX implied volatility"),
+    ColumnSpec("ff_mkt_rf", description="Fama-French market risk premium (Mkt-RF), percent"),
+    ColumnSpec("ff_smb", description="Fama-French small-minus-big factor, percent"),
+    ColumnSpec("ff_hml", description="Fama-French high-minus-low factor, percent"),
+    ColumnSpec("ff_rmw", description="Fama-French robust-minus-weak factor, percent"),
+    ColumnSpec("ff_cma", description="Fama-French conservative-minus-aggressive factor, percent"),
+    ColumnSpec("ff_rf", description="Fama-French risk-free rate, percent"),
 )
 
 SIGNAL_COLUMNS: tuple[str, ...] = tuple(c.name for c in COLUMNS if c.name not in PRICE_COLUMNS)
-REQUIRED_COLUMNS: tuple[str, ...] = (DATE_COLUMN,) + tuple(c.name for c in COLUMNS)
+
+#: Columns that must be present for the file to be usable.
+#: Missing these is blocking.
+REQUIRED_COLUMNS: tuple[str, ...] = (DATE_COLUMN, "spx_close", "vix")
+
+#: Columns with no automated source at all.  They can only be supplied by hand,
+#: so an auto-extracted file never carries them and their absence is expected —
+#: never reported the way a missing optional column is.
+MANUAL_ONLY_COLUMNS: tuple[str, ...] = ("fx_impl_vol",)
+
+#: Columns that are nice to have.  Missing these produces informational issues,
+#: not blocking errors.  The engine can run without them.  The ``*_target``
+#: columns are deliberately absent: they are derived internally, so their
+#: absence is not a sign of an incomplete file.  ``MANUAL_ONLY_COLUMNS`` are
+#: likewise excluded — nothing supplies them automatically, so it would be
+#: noise to warn that an auto-extracted file is missing one.  So are
+#: ``OUTPUT_DROPPED_COLUMNS``: they are dropped from the final output, so a
+#: missing one is expected, not an oversight.
+OPTIONAL_COLUMNS: tuple[str, ...] = tuple(
+    c.name
+    for c in COLUMNS
+    if c.name not in REQUIRED_COLUMNS
+    and c.name not in TARGET_COLUMNS
+    and c.name not in MANUAL_ONLY_COLUMNS
+    and c.name not in OUTPUT_DROPPED_COLUMNS
+)
+
+#: All columns in contract order (for assembly and display).
+ALL_COLUMNS: tuple[str, ...] = (DATE_COLUMN,) + tuple(c.name for c in COLUMNS)
 
 #: Issue kinds that make a file unusable rather than merely imperfect.
 BLOCKING_KINDS: frozenset[str] = frozenset({"missing_column", "unparseable_date", "non_numeric"})
@@ -93,10 +180,19 @@ def validate(frame: pd.DataFrame) -> list[SchemaIssue]:
     """
     issues: list[SchemaIssue] = []
 
-    missing = [name for name in REQUIRED_COLUMNS if name not in frame.columns]
-    issues.extend(SchemaIssue("missing_column", name, _absent_detail(name)) for name in missing)
+    missing_required = [name for name in REQUIRED_COLUMNS if name not in frame.columns]
+    issues.extend(
+        SchemaIssue("missing_column", name, _absent_detail(name, required=True))
+        for name in missing_required
+    )
 
-    if DATE_COLUMN not in missing:
+    missing_optional = [name for name in OPTIONAL_COLUMNS if name not in frame.columns]
+    issues.extend(
+        SchemaIssue("optional_missing", name, _absent_detail(name, required=False))
+        for name in missing_optional
+    )
+
+    if DATE_COLUMN not in missing_required:
         issues.extend(_date_issues(frame[DATE_COLUMN]))
     for spec in COLUMNS:
         if spec.name in frame.columns:
@@ -114,12 +210,13 @@ def _at(mask: pd.Series | np.ndarray) -> tuple[int, ...]:
     return tuple(int(pos) + 2 for pos in positions[:MAX_REPORTED_ROWS])
 
 
-def _absent_detail(name: str) -> str:
+def _absent_detail(name: str, required: bool = True) -> str:
     """Name the series as well as the column, since the reader may not know the code."""
     spec = next((c for c in COLUMNS if c.name == name), None)
+    label = "required" if required else "optional"
     if spec is None or not spec.description:
-        return f"required column {name!r} is absent"
-    return f"required column {name!r} ({spec.description}) is absent"
+        return f"{label} column {name!r} is absent"
+    return f"{label} column {name!r} ({spec.description}) is absent"
 
 
 def _date_issues(raw: pd.Series) -> list[SchemaIssue]:

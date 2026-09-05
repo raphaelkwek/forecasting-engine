@@ -35,13 +35,25 @@ _CRASH_LENGTH = 30
 #: Full float precision would be both unrealistic and four times the file size.
 _PRECISION = {
     "spx_close": 2,
-    "agg_close": 4,
+    "spx_close_target": 2,
+    "bond_index_global_agg": 4,
+    "bond_index_target": 4,
     "vix": 2,
+    "tnx_close": 4,
+    "dollar_index": 3,
+    "eur_fx_vol": 3,
+    "credit_spread_ig": 3,
     "credit_spread_hy": 2,
-    "credit_spread_ig": 2,
-    "fx_impl_vol": 2,
+    "breakeven_5y": 4,
     "breakeven_10y": 4,
     "term_spread": 4,
+    "fx_impl_vol": 2,
+    "ff_mkt_rf": 4,
+    "ff_smb": 4,
+    "ff_hml": 4,
+    "ff_rmw": 4,
+    "ff_cma": 4,
+    "ff_rf": 4,
 }
 
 BANNER = "SYNTHETIC DATA — invented for testing and demos, not for analysis."
@@ -77,30 +89,48 @@ def generate(years: int = 10, seed: int = 42, *, with_defects: bool = True) -> p
         {
             DATE_COLUMN: dates,
             "spx_close": 3000.0 * np.exp(np.cumsum(equity_returns)),
-            "agg_close": 100.0 * np.exp(np.cumsum(bond_returns)),
+            # Unlagged observed levels, mirroring the extraction output: the
+            # target return a model learns is built from consecutive levels.
+            "spx_close_target": 3000.0 * np.exp(np.cumsum(equity_returns)),
+            "bond_index_global_agg": 100.0 * np.exp(np.cumsum(bond_returns)),
+            "bond_index_target": 100.0 * np.exp(np.cumsum(bond_returns)),
             "vix": vix,
-            # Each spread tracks volatility but drifts on its own too. Driving
-            # them from the VIX alone makes them near-copies of it (r > 0.99),
+            "tnx_close": np.clip(4.0 + np.cumsum(rng.normal(0, 0.01, n)), 0.5, 15.0),
+            "dollar_index": np.clip(100.0 + np.cumsum(rng.normal(0, 0.05, n)), 60.0, 160.0),
+            "eur_fx_vol": np.clip(9.0 + 0.15 * (vix - 16.0) + rng.normal(0, 0.4, n), 1.0, None),
+            "credit_spread_ig": np.clip(
+                1.2 + 0.03 * (vix - 16.0) + _drift(rng, n, 0.008) + rng.normal(0, 0.05, n),
+                0.3,
+                None,
+            ),
+            # The high-yield spread tracks volatility but drifts on its own too.
+            # Driving it from the VIX alone makes it a near-copy (r > 0.99),
             # which is neither realistic nor useful for signal screening.
             "credit_spread_hy": np.clip(
-                3.5 + 0.10 * (vix - 16.0) + _drift(rng, n, 0.020) + rng.normal(0, 0.10, n),
+                2.0 + 0.05 * (vix - 16.0) + _drift(rng, n, 0.012) + rng.normal(0, 0.06, n),
                 0.5,
                 None,
             ),
-            "credit_spread_ig": np.clip(
-                1.2 + 0.025 * (vix - 16.0) + _drift(rng, n, 0.007) + rng.normal(0, 0.04, n),
-                0.2,
-                None,
-            ),
+            "breakeven_5y": 2.0 + np.cumsum(rng.normal(0, 0.004, n)),
+            "breakeven_10y": 2.2 + np.cumsum(rng.normal(0, 0.004, n)),
+            "term_spread": 1.0 + np.cumsum(rng.normal(0, 0.005, n)),
             "fx_impl_vol": np.clip(
                 8.0 + 0.18 * (vix - 16.0) + _drift(rng, n, 0.030) + rng.normal(0, 0.35, n),
                 2.0,
                 None,
             ),
-            "breakeven_10y": 2.2 + np.cumsum(rng.normal(0, 0.004, n)),
-            "term_spread": 1.0 + np.cumsum(rng.normal(0, 0.005, n)),
+            # Fama-French 5-Factor daily returns (percent).
+            # Mkt-RF tracks the equity excess return; the other factors are
+            # independent for synthetic purposes.
+            "ff_mkt_rf": equity_returns * 100.0,
+            "ff_smb": rng.normal(0.02, 0.5, n),
+            "ff_hml": rng.normal(0.01, 0.4, n),
+            "ff_rmw": rng.normal(0.02, 0.3, n),
+            "ff_cma": rng.normal(0.01, 0.3, n),
+            "ff_rf": rng.normal(0.01, 0.01, n),
         }
     )
+
     frame = frame.round(_PRECISION)
     return _inject_defects(frame) if with_defects else frame
 

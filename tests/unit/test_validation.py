@@ -14,13 +14,15 @@ from forecasting_engine.ingest.validation import (
 )
 
 HEADER = (
-    "date,spx_close,agg_close,vix,credit_spread_hy,credit_spread_ig,"
-    "fx_impl_vol,breakeven_10y,term_spread"
+    "date,spx_close,bond_index_global_agg,vix,tnx_close,dollar_index,"
+    "eur_fx_vol,credit_spread_ig,"
+    "credit_spread_hy,breakeven_5y,breakeven_10y,term_spread,fx_impl_vol,"
+    "ff_mkt_rf,ff_smb,ff_hml,ff_rmw,ff_cma,ff_rf"
 )
 GOOD_ROWS = [
-    "2024-01-01,100.0,50.0,15.0,3.5,1.2,8.0,2.2,1.0",
-    "2024-01-02,101.0,50.1,16.0,3.6,1.2,8.1,2.2,1.0",
-    "2024-01-03,102.0,50.2,17.0,3.7,1.3,8.2,2.3,1.1",
+    "2024-01-01,100.0,50.0,15.0,4.0,100.0,10.0,1.0,3.0,2.0,8.0,2.2,10.0,0.05,0.02,0.01,0.02,0.01,0.01",
+    "2024-01-02,101.0,50.1,16.0,4.1,101.0,11.0,1.1,3.1,2.1,8.1,2.3,11.0,0.02,0.01,0.02,0.01,0.01,0.01",
+    "2024-01-03,102.0,50.2,17.0,4.2,102.0,12.0,1.2,3.2,2.2,8.2,2.4,12.0,0.01,0.03,0.01,0.02,0.01,0.01",
 ]
 
 
@@ -75,14 +77,12 @@ def test_a_missing_column_is_named():
 
 
 def test_several_missing_columns_are_all_named():
-    header = "date,spx_close,agg_close"
+    header = "date,spx_close,bond_index_global_agg"
     rows = [",".join(r.split(",")[:3]) for r in GOOD_ROWS]
     result = validate_upload(upload(csv_bytes(rows, header)))
 
-    assert set(result.missing_columns) == {
-        "vix", "credit_spread_hy", "credit_spread_ig",
-        "fx_impl_vol", "breakeven_10y", "term_spread",
-    }
+    # Only the required columns block when absent; optional ones are warnings.
+    assert set(result.missing_columns) == {"vix"}
 
 
 def test_a_missing_column_blocks_the_pipeline():
@@ -161,7 +161,7 @@ def test_unsorted_dates_warn_without_blocking():
 def test_the_summary_counts_both_classes():
     rows = list(GOOD_ROWS)
     rows[1] = rows[1].replace(",16.0,", ",oops,")
-    rows[2] = rows[2].replace(",1.3,", ",90.0,")
+    rows[2] = rows[2].replace(",2.4", ",200.0")
     result = validate_upload(upload(csv_bytes(rows)))
 
     assert result.summary["passed"] is False
