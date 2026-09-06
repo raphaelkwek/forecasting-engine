@@ -219,3 +219,42 @@ def test_the_stylesheet_reaches_home_even_after_the_data_page_rendered(
     home = ingested(tmp_path, monkeypatch, signals_csv())
     assert "fe-lozenge" in texts(home.markdown)
     assert "fe-eyebrow" in texts(home.markdown)
+
+
+# --- findings must say where they are, and say it in full -----------------
+
+
+def test_a_repeated_date_names_the_date_on_the_page(tmp_path, monkeypatch):
+    rows = signals_csv(n=40).decode().splitlines()
+    rows[5] = rows[5].replace(rows[5].split(",")[0], rows[4].split(",")[0])
+    home = ingested(tmp_path, monkeypatch, ("\n".join(rows) + "\n").encode())
+
+    report = home.session_state["quality_report"]
+    (found,) = [f for f in report.findings if f.check == "schema" and f.signal == "date"]
+    assert found.dates, "a repeated date must name the date that repeats"
+    assert found.dates[0] in texts(home.markdown)
+
+
+def test_a_finding_shows_its_line_number(tmp_path, monkeypatch):
+    home = ingested(tmp_path, monkeypatch, signals_csv(spike_at=150))
+
+    body = texts(home.markdown)
+    (found,) = [f for f in home.session_state["quality_report"].findings
+                if f.check == "outliers"]
+    assert f"line {found.rows[0]}" in body
+
+
+def test_the_full_message_is_rendered_not_clipped_into_a_table(tmp_path, monkeypatch):
+    # The message is prose of unpredictable length; a table cell clips it.
+    home = ingested(tmp_path, monkeypatch, signals_csv(spike_at=150))
+
+    body = texts(home.markdown)
+    (found,) = [f for f in home.session_state["quality_report"].findings
+                if f.check == "outliers"]
+    assert found.detail in body, "the whole message must appear"
+    assert "fe-finding-detail" in body
+
+
+def test_a_flagged_value_is_shown_beside_its_location(tmp_path, monkeypatch):
+    home = ingested(tmp_path, monkeypatch, signals_csv(spike_at=150))
+    assert "value 180" in texts(home.markdown)

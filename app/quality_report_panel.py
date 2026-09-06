@@ -177,27 +177,47 @@ def _tally(findings: list[QualityFinding]) -> str:
 
 
 def _render_findings(findings: list[QualityFinding]) -> None:
-    st.dataframe(
-        [
-            {
-                "Severity": _SEVERITY_WORD[f.severity],
-                "Check": f.check,
-                "Date": f.dates[0] if f.dates else "",
-                "Value": f.value,
-                "Detail": f.detail,
-                "Decision": f.decision,
-            }
-            for f in findings
-        ],
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "Severity": st.column_config.TextColumn(width="small"),
-            "Check": st.column_config.TextColumn(width="small"),
-            "Date": st.column_config.TextColumn(width="small"),
-            "Detail": st.column_config.TextColumn(width="large"),
-        },
-    )
+    """Each finding on its own line, with its location and full message."""
+    tone = {
+        Severity.BLOCKING: "danger",
+        Severity.WARNING: "warning",
+        Severity.INFO: "info",
+    }
+    rows = [
+        ui.finding_row(
+            ui.lozenge(_SEVERITY_WORD[f.severity], tone[f.severity]),
+            _where(f),
+            f.detail,
+        )
+        for f in findings
+    ]
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+def _where(found: QualityFinding) -> str:
+    """Location, in the terms the reader has: dates first, then line numbers.
+
+    A date is what a portfolio manager recognises; a line number is what they
+    need to open the file at. Both are shown when both are known, and the count
+    stands in when there are more than a handful.
+    """
+    parts: list[str] = []
+    if found.dates:
+        shown = ", ".join(found.dates[:3])
+        if len(found.dates) < found.count:
+            shown += f" and {found.count - len(found.dates)} more"
+        parts.append(shown)
+    elif found.count > 1:
+        parts.append(f"{found.count} values")
+
+    if found.rows:
+        label = "line" if len(found.rows) == 1 else "lines"
+        parts.append(f"{label} {', '.join(str(r) for r in found.rows[:3])}")
+
+    if found.value is not None:
+        parts.append(f"value {found.value:,.4g}")
+
+    return " &middot; ".join(parts)
 
 
 def _render_checks(report: QualityReport) -> None:

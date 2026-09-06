@@ -79,6 +79,24 @@ _CSS = """
   .fe-row-name { font-size: 14px; }
   .fe-row-meta { color: var(--fe-muted); font-size: 12.5px; }
 
+  /* One finding per line. The message is prose of unpredictable length, so it
+     gets the full width and wraps, rather than being clipped inside a table
+     cell. Location and value sit above it in a muted meta line. */
+  .fe-finding {
+    padding: 9px 0;
+    border-bottom: 1px solid var(--fe-border);
+  }
+  .fe-finding:last-child { border-bottom: none; }
+  .fe-finding-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+  .fe-finding-where { color: var(--fe-muted); font-size: 12.5px; }
+  .fe-finding-detail { font-size: 14px; line-height: 1.45; }
+
   .fe-eyebrow {
     font-size: 11px;
     font-weight: 600;
@@ -119,6 +137,19 @@ def status_row(name: str, badge: str, meta: str = "") -> str:
     return (
         f'<div class="fe-row"><span class="fe-row-name">{name}</span>'
         f"<span>{detail}&nbsp;&nbsp;{badge}</span></div>"
+    )
+
+
+def finding_row(badge: str, where: str, detail: str) -> str:
+    """One finding: badge and location on top, the message in full beneath.
+
+    A table clips the message, and the message is the part that explains the
+    finding. Here it wraps instead.
+    """
+    location = f'<span class="fe-finding-where">{where}</span>' if where else ""
+    return (
+        f'<div class="fe-finding"><div class="fe-finding-head">{badge}{location}</div>'
+        f'<div class="fe-finding-detail">{detail}</div></div>'
     )
 
 
