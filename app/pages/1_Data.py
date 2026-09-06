@@ -1,13 +1,9 @@
-"""Data page: upload the signal CSV, then validate it against the schema."""
+"""Data page: upload Bloomberg CSV exports, merge and validate them."""
 
 import streamlit as st
 
-import upload_panel
-import validation_panel
+import bloomberg_extraction_panel
 
 st.set_page_config(page_title="Data · Forecasting Engine", page_icon=":material/database:")
 
-accepted = upload_panel.render()
-if accepted is not None:
-    st.divider()
-    validation_panel.render(accepted)
+bloomberg_extraction_panel.render()
