@@ -19,7 +19,7 @@ from forecasting_engine.ingest.upload import (
 )
 from forecasting_engine.store.uploads import recent_uploads, record_upload
 
-#: Where the accepted upload is parked for the pages downstream.
+# Where the accepted upload is parked for the pages downstream.
 SESSION_KEY = "accepted_upload"
 
 _LOGGED_KEY = "_logged_upload_file_id"
@@ -33,10 +33,10 @@ def render() -> AcceptedUpload | None:
     or None when there is nothing to validate.
     """
     ui.inject()
-    st.header("Upload signal data")
+    st.header("Upload Signal Data")
     st.caption(
-        f"A single CSV of daily market and macroeconomic signals, up to {_LIMIT_MB} MB. "
-        "See docs/data-specification.md for the column contract."
+        f"**A single CSV of daily market and macroeconomic signals, up to {_LIMIT_MB} MB. "
+        "See docs/data-specification.md for the column contract.**"
     )
 
     # No `type=` filter on purpose: it would drop non-CSV files in the browser,

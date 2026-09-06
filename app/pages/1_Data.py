@@ -2,12 +2,20 @@
 
 import streamlit as st
 
+import ui
 import upload_panel
 import validation_panel
 
 st.set_page_config(page_title="Data · Forecasting Engine", page_icon=":material/database:")
 
-accepted = upload_panel.render()
+ui.animated_background("data")
+ui.inject()
+ui.sidebar_brand()
+ui.page_header("Data", "Upload and validate the signal CSV that feeds every forecast.")
+
+with st.container(border=True, key="fe-card-upload"):
+    accepted = upload_panel.render()
+
 if accepted is not None:
-    st.divider()
-    validation_panel.render(accepted)
+    with st.container(border=True, key="fe-card-validation"):
+        validation_panel.render(accepted)

@@ -6,16 +6,18 @@
 maxUploadSize = 30
 
 
-# Colours are GitHub Primer's, which an internal analytics tool has no reason to
-# depart from: an enterprise blue accent, neutral greys carrying the structure,
-# and semantic green/amber/red reserved for state. Atlassian's system is built on
-# the same bones. Primer publishes exact values for both themes, so the dark side
-# is a designed palette rather than an inversion of the light one.
+# A trading-terminal palette — black canvas, a saturated orange accent, gold
+# reserved for brand emphasis — deliberately evoking Bloomberg/Reuters-style
+# screens, since that is the visual language portfolio and risk managers
+# already read fluently. Dark is the default (`base`); a lighter variant is
+# still defined for anyone who switches Streamlit's own theme setting.
 #
-# https://primer.style/foundations/color
+# Semantic colour (green/yellow/red/blue) stays on conventional hues rather
+# than orange or gold, on purpose: a "blocking issue" badge must never be
+# mistaken for brand decoration.
 
 [theme]
-base = "light"
+base = "dark"
 font = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif"
 codeFont = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
 baseFontSize = 15
@@ -25,64 +27,64 @@ showWidgetBorder = true
 showSidebarBorder = true
 linkUnderline = false
 
-[theme.light]
-backgroundColor = "#FFFFFF"           # canvas.default
-secondaryBackgroundColor = "#F6F8FA"  # canvas.subtle
-textColor = "#1F2328"                 # fg.default
-primaryColor = "#0969DA"              # accent.fg
-linkColor = "#0969DA"
-borderColor = "#D1D9E0"               # border.default
-dataframeBorderColor = "#D1D9E0"
-dataframeHeaderBackgroundColor = "#F6F8FA"
-codeBackgroundColor = "#F6F8FA"
-codeTextColor = "#1F2328"
-
-greenColor = "#1A7F37"                # success.fg
-greenTextColor = "#1A7F37"
-greenBackgroundColor = "#DAFBE1"      # success.subtle
-yellowColor = "#9A6700"               # attention.fg
-yellowTextColor = "#9A6700"
-yellowBackgroundColor = "#FFF8C5"     # attention.subtle
-orangeColor = "#BC4C00"               # severe.fg
-orangeTextColor = "#BC4C00"
-orangeBackgroundColor = "#FFF1E5"
-redColor = "#D1242F"                  # danger.fg
-redTextColor = "#D1242F"
-redBackgroundColor = "#FFEBE9"        # danger.subtle
-blueColor = "#0969DA"
-blueTextColor = "#0969DA"
-blueBackgroundColor = "#DDF4FF"       # accent.subtle
-grayColor = "#59636E"                 # fg.muted
-grayTextColor = "#59636E"
-grayBackgroundColor = "#F6F8FA"
-
 [theme.dark]
-backgroundColor = "#0D1117"
-secondaryBackgroundColor = "#151B23"
-textColor = "#F0F6FC"
-primaryColor = "#4493F8"
-linkColor = "#4493F8"
-borderColor = "#3D444D"
-dataframeBorderColor = "#3D444D"
-dataframeHeaderBackgroundColor = "#151B23"
-codeBackgroundColor = "#151B23"
-codeTextColor = "#F0F6FC"
+backgroundColor = "#0A0807"
+secondaryBackgroundColor = "#171310"
+textColor = "#F5EEE1"
+primaryColor = "#FF6A00"
+linkColor = "#FF8C3D"
+borderColor = "#332A1E"
+dataframeBorderColor = "#332A1E"
+dataframeHeaderBackgroundColor = "#171310"
+codeBackgroundColor = "#171310"
+codeTextColor = "#F5EEE1"
 
-greenColor = "#3FB950"
-greenTextColor = "#3FB950"
-greenBackgroundColor = "#0F2417"
-yellowColor = "#D29922"
-yellowTextColor = "#D29922"
-yellowBackgroundColor = "#272115"
-orangeColor = "#DB6D28"
-orangeTextColor = "#DB6D28"
-orangeBackgroundColor = "#2A1D14"
-redColor = "#F85149"
-redTextColor = "#F85149"
-redBackgroundColor = "#2A1618"
-blueColor = "#4493F8"
-blueTextColor = "#4493F8"
-blueBackgroundColor = "#121D2F"
-grayColor = "#9198A1"
-grayTextColor = "#9198A1"
-grayBackgroundColor = "#151B23"
+greenColor = "#2ECC71"
+greenTextColor = "#2ECC71"
+greenBackgroundColor = "#12261A"
+yellowColor = "#FFC94A"
+yellowTextColor = "#FFC94A"
+yellowBackgroundColor = "#2B2210"
+orangeColor = "#FF6A00"
+orangeTextColor = "#FF6A00"
+orangeBackgroundColor = "#2E1B0D"
+redColor = "#FF4D4D"
+redTextColor = "#FF4D4D"
+redBackgroundColor = "#2E1212"
+blueColor = "#4DD8E8"
+blueTextColor = "#4DD8E8"
+blueBackgroundColor = "#0F2429"
+grayColor = "#B8ADA0"
+grayTextColor = "#B8ADA0"
+grayBackgroundColor = "#171310"
+
+[theme.light]
+backgroundColor = "#FFFDF9"
+secondaryBackgroundColor = "#FBF3E7"
+textColor = "#1C1712"
+primaryColor = "#E85D00"
+linkColor = "#C94E00"
+borderColor = "#E7D9C3"
+dataframeBorderColor = "#E7D9C3"
+dataframeHeaderBackgroundColor = "#FBF3E7"
+codeBackgroundColor = "#FBF3E7"
+codeTextColor = "#1C1712"
+
+greenColor = "#1E8449"
+greenTextColor = "#1E8449"
+greenBackgroundColor = "#E7F6EC"
+yellowColor = "#8A6200"
+yellowTextColor = "#8A6200"
+yellowBackgroundColor = "#FFF3D6"
+orangeColor = "#C1440E"
+orangeTextColor = "#C1440E"
+orangeBackgroundColor = "#FDEBDD"
+redColor = "#C0392B"
+redTextColor = "#C0392B"
+redBackgroundColor = "#FBE9E7"
+blueColor = "#0E7C86"
+blueTextColor = "#0E7C86"
+blueBackgroundColor = "#E3F3F4"
+grayColor = "#6B6156"
+grayTextColor = "#6B6156"
+grayBackgroundColor = "#F3ECE0"

@@ -1,0 +1,171 @@
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+  canvas { display: block; }
+</style>
+<canvas id="fe-plexus"></canvas>
+<script>
+(function () {
+  var canvas = document.getElementById("fe-plexus");
+  var ctx = canvas.getContext("2d");
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var THEMES = __THEMES_JSON__;
+
+  function detectTheme() {
+    try {
+      var doc = window.parent.document;
+      var el =
+        doc.querySelector('[data-testid="stSidebar"]') ||
+        doc.querySelector('[data-testid="stSidebarUserContent"]') ||
+        doc.querySelector('[data-testid="stHeader"]');
+      if (!el) return null;
+      var bg = getComputedStyle(el).backgroundColor;
+      var m = bg.match(/rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      if (!m) return null;
+      var alpha = m[4] === undefined ? 1 : parseFloat(m[4]);
+      if (alpha < 0.5) return null;
+      var luminance = 0.299 * m[1] + 0.587 * m[2] + 0.114 * m[3];
+      return luminance > 128 ? "light" : "dark";
+    } catch (e) {
+      return null;
+    }
+  }
+
+  var CSS_VARS = {
+    "--fe-neutral-bg": "neutral_bg", "--fe-neutral-fg": "neutral_fg",
+    "--fe-info-bg": "info_bg", "--fe-info-fg": "info_fg",
+    "--fe-success-bg": "success_bg", "--fe-success-fg": "success_fg",
+    "--fe-warning-bg": "warning_bg", "--fe-warning-fg": "warning_fg",
+    "--fe-danger-bg": "danger_bg", "--fe-danger-fg": "danger_fg",
+    "--fe-border": "border", "--fe-muted": "muted",
+    "--fe-orange": "orange", "--fe-gold": "gold", "--fe-surface": "surface",
+  };
+
+  var palette = null;
+  var nodeColors = null;
+  var lineColor = null;
+  var appBg = null;
+  var particles = [];
+  var t = 0;
+  var MAX_DIST = 200; //controls the dist before node creates link
+  var MAX_SPEED = 2.5; //determines speed of node
+
+  function applyPalette(next) {
+    if (next === palette) return;
+    palette = next;
+    nodeColors = palette.plexus_nodes;
+    lineColor = palette.plexus_line;
+    appBg = palette.app_bg;
+    document.body.style.background = appBg;
+    try {
+      var root = window.parent.document.documentElement;
+      for (var name in CSS_VARS) root.style.setProperty(name, palette[CSS_VARS[name]]);
+    } catch (e) {}
+  }
+  applyPalette(THEMES[detectTheme()] || THEMES["__DEFAULT_THEME__"]);
+
+  setInterval(function () {
+    var detected = detectTheme();
+    if (detected) applyPalette(THEMES[detected]);
+  }, 1000);
+
+  function resize() {
+    canvas.width = window.parent.innerWidth;
+    canvas.height = window.parent.innerHeight;
+  }
+  window.parent.addEventListener("resize", resize);
+  resize();
+
+  //Reduce divisor to increase node count
+  var COUNT = Math.max(100, Math.min(320, Math.round((canvas.width * canvas.height) / 5500)));
+
+  for (var i = 0; i < COUNT; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.9,
+      vy: (Math.random() - 0.5) * 0.9,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+
+  var meanVx = 0;
+  var meanVy = 0;
+  for (var i = 0; i < particles.length; i++) {
+    meanVx += particles[i].vx;
+    meanVy += particles[i].vy;
+  }
+  meanVx /= particles.length;
+  meanVy /= particles.length;
+  for (var i = 0; i < particles.length; i++) {
+    particles[i].vx -= meanVx;
+    particles[i].vy -= meanVy;
+  }
+
+  function frame() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    t += 1;
+
+    //Modify the 0.15 to determine the node moving pattern
+    if (!reduceMotion) {
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        p.vx += (Math.random() - 0.5) * 0.15;
+        p.vy += (Math.random() - 0.5) * 0.15;
+        var speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        if (speed > MAX_SPEED) {
+          p.vx = (p.vx / speed) * MAX_SPEED;
+          p.vy = (p.vy / speed) * MAX_SPEED;
+        }
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+      }
+    }
+
+    ctx.lineWidth = 1.1;
+    for (var i = 0; i < particles.length; i++) {
+      for (var j = i + 1; j < particles.length; j++) {
+        var a = particles[i];
+        var b = particles[j];
+        var dx = a.x - b.x;
+        var dy = a.y - b.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MAX_DIST) {
+          ctx.strokeStyle = lineColor;
+          ctx.globalAlpha = 0.4 * (1 - dist / MAX_DIST);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      ctx.globalAlpha = 0.45 + 0.4 * (0.5 + 0.5 * Math.sin(t * 0.04 + p.phase));
+      ctx.fillStyle = nodeColors[i % nodeColors.length];
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (!reduceMotion) requestAnimationFrame(frame);
+  }
+  frame();
+
+  var host = window.frameElement;
+  if (host) {
+    host.style.position = "fixed";
+    host.style.top = "0";
+    host.style.left = "0";
+    host.style.width = "100vw";
+    host.style.height = "100vh";
+    host.style.zIndex = "0";
+    host.style.pointerEvents = "none";
+    host.style.border = "none";
+  }
+})();
+</script>

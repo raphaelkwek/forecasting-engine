@@ -1,0 +1,129 @@
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"] {
+  background: transparent;
+}
+
+[data-testid="stHeader"] {
+  background: color-mix(in srgb, var(--fe-surface) 85%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--fe-border);
+}
+
+[class*="st-key-fe-card-"] {
+  background: color-mix(in srgb, var(--fe-surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+[class*="st-key-fe-card-"] h1,
+[class*="st-key-fe-card-"] h2,
+[class*="st-key-fe-card-"] h3 {
+  font-weight: 700;
+}
+
+[data-testid="stSidebarNavLink"] {
+  font-weight: 700;
+}
+
+[data-testid="stFileUploaderDropzoneInstructions"] { display: none; }
+
+.fe-lozenge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fe-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--fe-border);
+}
+.fe-row:last-child { border-bottom: none; }
+.fe-row-name { font-size: 14px; }
+.fe-row-meta { color: var(--fe-muted); font-size: 12.5px; }
+
+/* One finding per line. The message is prose of unpredictable length, so it
+   gets the full width and wraps, rather than being clipped inside a table
+   cell. Location and value sit above it in a muted meta line. */
+.fe-finding {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--fe-border);
+}
+.fe-finding:last-child { border-bottom: none; }
+.fe-finding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.fe-finding-where { color: var(--fe-muted); font-size: 12.5px; }
+.fe-finding-detail { font-size: 14px; line-height: 1.45; }
+
+.fe-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--fe-gold);
+  margin-bottom: 2px;
+}
+
+.fe-hero {
+  padding: 1.5rem 0 1.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--fe-border);
+}
+.fe-hero-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--fe-gold);
+  margin-bottom: .35rem;
+}
+.fe-hero-title {
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 .4rem;
+  display: inline-block;
+  background: linear-gradient(90deg, var(--fe-orange), var(--fe-gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.fe-hero-subtitle {
+  color: var(--fe-muted);
+  font-size: 15px;
+  font-weight: 700;
+  max-width: 62ch;
+}
+
+.fe-sidebar-brand {
+  margin-top: .5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--fe-border);
+}
+.fe-sidebar-mark {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--fe-gold);
+}
+.fe-sidebar-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fe-orange);
+  margin-top: 2px;
+}
