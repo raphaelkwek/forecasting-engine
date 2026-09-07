@@ -149,10 +149,15 @@ def date_range(frame: pd.DataFrame) -> tuple[str, str] | None:
     Best effort, for the upload confirmation message only. A file with no
     usable date column is still a valid *file*; it is schema validation that
     decides whether it is a valid dataset.
+
+    Reads ISO dates only, as the contract and every other date reader do.
+    Letting pandas infer a format here would quote a guessed range for
+    ``01/02/2024`` in the confirmation, one line above the validator refusing
+    that same date as ambiguous.
     """
     if DATE_COLUMN not in frame.columns:
         return None
-    dates = pd.to_datetime(frame[DATE_COLUMN], errors="coerce").dropna()
+    dates = pd.to_datetime(frame[DATE_COLUMN], errors="coerce", format="ISO8601").dropna()
     if dates.empty:
         return None
     return dates.min().date().isoformat(), dates.max().date().isoformat()

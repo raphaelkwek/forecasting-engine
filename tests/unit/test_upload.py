@@ -168,3 +168,9 @@ def test_date_range_is_none_when_there_is_no_date_column():
 
 def test_date_range_is_none_when_the_dates_do_not_parse():
     assert date_range(parse_csv(b"date,a\nnot-a-date,1\n")) is None
+
+
+def test_date_range_does_not_guess_an_ambiguous_date():
+    # 01/02/2026 is 2 January or 1 February depending on who exported it. The
+    # validator refuses it; the confirmation must not quote a guess above that.
+    assert date_range(parse_csv(b"date,a\n01/02/2026,1\n03/02/2026,2\n")) is None
