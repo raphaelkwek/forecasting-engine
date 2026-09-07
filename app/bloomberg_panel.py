@@ -16,6 +16,7 @@ import ui
 from forecasting_engine.ingest.bloomberg import ConversionReport, combine
 from forecasting_engine.ingest.bloomberg_csv import read_export
 from forecasting_engine.ingest.upload import (
+    MAX_UPLOAD_BYTES,
     AcceptedUpload,
     UploadError,
     accept_upload,
@@ -24,7 +25,7 @@ from forecasting_engine.ingest.upload import (
     date_range,
 )
 from forecasting_engine.store.uploads import record_upload
-from upload_panel import SESSION_KEY
+from upload_panel import SESSION_KEY, clear_pipeline_state
 
 #: What the merged file is called in the upload log and the quality report.
 MERGED_NAME = "bloomberg_signals.csv"
@@ -41,7 +42,8 @@ def render() -> AcceptedUpload | None:
     ui.inject()
     st.header("Merge Bloomberg exports")
     st.caption(
-        "One CSV history export per security, as the terminal saves them. They are "
+        f"One CSV history export per security, up to {MAX_UPLOAD_BYTES // 1_000_000} MB each, "
+        "as the terminal saves them. They are "
         "joined on date and mapped onto the column contract here. See "
         "docs/bloomberg-exports.md for which securities to pull."
     )
@@ -50,21 +52,29 @@ def render() -> AcceptedUpload | None:
     # file should be refused with an explanation, not silently dropped.
     uploaded = st.file_uploader("Bloomberg CSV exports", type=None, accept_multiple_files=True)
     if not uploaded:
+        clear_pipeline_state()
         return None
 
     exports, problems = _read(uploaded)
     for problem in problems:
         st.error(problem)
     if not exports:
+        clear_pipeline_state()
         return None
 
     frame, report = combine(exports)
     _render_conversion(report)
     if not report.used:
+        clear_pipeline_state()
         st.error("None of these files supplies a signal the contract asks for.")
         return None
 
-    accepted = accept_upload(MERGED_NAME, frame.to_csv(index=False).encode("utf-8"))
+    try:
+        accepted = accept_upload(MERGED_NAME, frame.to_csv(index=False).encode("utf-8"))
+    except UploadError as exc:
+        clear_pipeline_state()
+        st.error(exc.message)
+        return None
     _log_once(accepted, file_id="|".join(getattr(f, "file_id", f.name) for f in uploaded))
     st.session_state[SESSION_KEY] = accepted
     _render_confirmation(accepted, len(exports))

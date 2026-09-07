@@ -11,7 +11,9 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import bloomberg_panel
 from forecasting_engine.ingest import fama_french
+from forecasting_engine.ingest.upload import MAX_UPLOAD_BYTES, FileSizeError
 from forecasting_engine.store.uploads import recent_uploads
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +31,12 @@ def export(security: str, values=(1.0, 2.0, 3.0), field="PX_LAST") -> bytes:
     rows = [f"{date},{value},#N/A N/A" for date, value in zip(DATES, values, strict=True)]
     lines = [f"Security,{security}", "Period,Daily", "", f"Date,{field},PX_BID", *rows]
     return ("\n".join(lines) + "\n").encode()
+
+
+def oversized_export() -> bytes:
+    """A parseable Bloomberg export just beyond the application limit."""
+    prefix = export("SPX Index")
+    return prefix + b"#" * (MAX_UPLOAD_BYTES - len(prefix) + 1)
 
 
 def every_signal() -> list[tuple[str, bytes, str]]:
@@ -89,6 +97,10 @@ def test_the_uploader_takes_several_files_and_does_not_filter_in_the_browser(pag
     assert page.file_uploader[0].allowed_type == []
 
 
+def test_the_bloomberg_uploader_states_the_per_file_limit(page):
+    assert f"up to {MAX_UPLOAD_BYTES // 1_000_000} MB each" in texts(page.caption)
+
+
 # --- merging -------------------------------------------------------------------
 
 
@@ -144,6 +156,56 @@ def test_a_spreadsheet_is_refused_by_extension(page):
 
     assert ".csv" in texts(result.error)
     assert not result.success
+
+
+def test_an_oversized_export_is_refused_with_the_application_limit(page, tmp_path):
+    result = upload(page, [("spx.csv", oversized_export(), "text/csv")])
+
+    assert "25.0 MB" in texts(result.error)
+    assert "over the" in texts(result.error)
+    assert "spx.csv" in texts(result.error)
+    assert f"{MAX_UPLOAD_BYTES + 1:,} bytes" in texts(result.error)
+    assert f"{MAX_UPLOAD_BYTES:,} bytes" in texts(result.error)
+    assert not result.success
+    assert "accepted_upload" not in result.session_state
+    assert not (tmp_path / "data" / "uploads").exists()
+    assert recent_uploads(db_path=tmp_path / "data" / "forecasting.duckdb") == []
+
+
+def test_an_oversized_export_does_not_discard_a_valid_export(page):
+    result = upload(
+        page,
+        [
+            ("spx.csv", oversized_export(), "text/csv"),
+            ("vix.csv", export("VIX Index"), "text/csv"),
+        ],
+    )
+
+    assert "spx.csv" in texts(result.error)
+    assert "Merged 1 export" in texts(result.success)
+    assert list(result.session_state["accepted_upload"].frame.columns) == ["date", "vix"]
+
+
+def test_replacing_a_merge_with_an_oversized_batch_clears_pipeline_state(page):
+    result = upload(page, [("spx.csv", export("SPX Index"), "text/csv")])
+    assert "accepted_upload" in result.session_state
+
+    result = upload(page, [("spx.csv", oversized_export(), "text/csv")])
+
+    for key in ("accepted_upload", "validated_upload", "quality_report", "prepared_frame"):
+        assert key not in result.session_state
+
+
+def test_an_oversized_merged_file_is_reported_instead_of_crashing(page, monkeypatch):
+    def reject_merged_file(*args, **kwargs):
+        raise FileSizeError("'bloomberg_signals.csv' is over the 25.0 MB limit.")
+
+    monkeypatch.setattr(bloomberg_panel, "accept_upload", reject_merged_file)
+    result = upload(page, [("spx.csv", export("SPX Index"), "text/csv")])
+
+    assert not result.exception
+    assert "bloomberg_signals.csv" in texts(result.error)
+    assert "accepted_upload" not in result.session_state
 
 
 def test_the_merged_file_can_be_downloaded(page):

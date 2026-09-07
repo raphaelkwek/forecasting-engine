@@ -67,11 +67,14 @@ def test_the_parsed_frame_carries_every_column_through(in_a_scratch_workspace):
     # teardown on every Windows machine while CI on Ubuntu stayed green.
     ids=["spreadsheet", "disguised", "oversized"],
 )
-def test_a_rejected_upload_writes_nothing_anywhere(filename, data, expected):
+def test_a_rejected_upload_writes_nothing_anywhere(
+    in_a_scratch_workspace, filename, data, expected
+):
     with pytest.raises(expected):
         _upload(filename, data)
 
     assert recent_uploads() == []
+    assert not (in_a_scratch_workspace / "data" / "uploads").exists()
 
 
 def test_re_uploading_the_same_file_stores_one_copy_but_logs_two_events(

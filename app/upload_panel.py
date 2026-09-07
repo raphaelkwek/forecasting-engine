@@ -25,6 +25,14 @@ SESSION_KEY = "accepted_upload"
 _LOGGED_KEY = "_logged_upload_file_id"
 _LIMIT_MB = MAX_UPLOAD_BYTES // 1_000_000
 
+_PIPELINE_KEYS = (
+    SESSION_KEY,
+    "validated_upload",
+    "quality_report",
+    "prepared_frame",
+    "outlier_decisions",
+)
+
 
 def render() -> AcceptedUpload | None:
     """Draw the panel and handle whatever the user has uploaded.
@@ -44,12 +52,14 @@ def render() -> AcceptedUpload | None:
     uploaded = st.file_uploader("Signal CSV", type=None, accept_multiple_files=False)
 
     if uploaded is None:
+        clear_pipeline_state()
         _render_history()
         return None
 
     try:
         accepted = accept_upload(uploaded.name, uploaded.getvalue())
     except UploadError as exc:
+        clear_pipeline_state()
         st.error(exc.message)
         _render_history()
         return None
@@ -59,6 +69,12 @@ def render() -> AcceptedUpload | None:
     _render_confirmation(accepted)
     _render_history()
     return accepted
+
+
+def clear_pipeline_state() -> None:
+    """Revoke every downstream artifact when there is no accepted current input."""
+    for key in _PIPELINE_KEYS:
+        st.session_state.pop(key, None)
 
 
 def _log_once(accepted: AcceptedUpload, *, file_id: str) -> None:

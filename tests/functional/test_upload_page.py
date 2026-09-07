@@ -6,6 +6,7 @@ actual ``st.file_uploader`` widget, so these exercise the page as shipped
 rather than a stand-in for it.
 """
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from forecasting_engine.store.uploads import recent_uploads
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGE = REPO_ROOT / "app" / "pages" / "1_Data.py"
+STREAMLIT_CONFIG = REPO_ROOT / ".streamlit" / "config.toml"
 
 VALID_CSV = (
     b"date,spx_close,agg_close,vix,credit_spread_hy,credit_spread_ig,"
@@ -124,6 +126,13 @@ def test_the_page_states_the_documented_limit(page):
     assert f"up to {MAX_UPLOAD_BYTES // 1_000_000} MB" in page.caption[0].value
 
 
+def test_streamlits_transport_limit_does_not_preempt_the_application_error():
+    with STREAMLIT_CONFIG.open("rb") as config_file:
+        streamlit_limit_bytes = tomllib.load(config_file)["server"]["maxUploadSize"] * 1_000_000
+
+    assert streamlit_limit_bytes > MAX_UPLOAD_BYTES
+
+
 def test_the_uploader_does_not_filter_by_type_in_the_browser(page):
     # If it did, a non-CSV would never reach the server and AC2's error could
     # never be shown. This is load-bearing, not incidental.
@@ -154,3 +163,15 @@ def test_a_rejected_upload_is_not_logged(page, tmp_path, case):
 
     db = tmp_path / "data" / "forecasting.duckdb"
     assert not db.exists() or recent_uploads(db_path=db) == []
+
+
+def test_replacing_a_valid_upload_with_an_oversized_file_clears_pipeline_state(page, tmp_path):
+    result = upload(page, "signals.csv", VALID_CSV)
+    assert "validated_upload" in result.session_state
+
+    result = upload(page, "decades.csv", oversized_csv())
+
+    assert "25.0 MB" in result.error[0].value
+    for key in ("accepted_upload", "validated_upload", "quality_report", "prepared_frame"):
+        assert key not in result.session_state
+    assert len(recent_uploads(db_path=tmp_path / "data" / "forecasting.duckdb")) == 1
