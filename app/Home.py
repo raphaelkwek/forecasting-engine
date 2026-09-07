@@ -8,9 +8,8 @@ check before trusting a forecast built on this data.
 
 import streamlit as st
 
-import quality_report_panel
+import bloomberg_extraction_panel
 import ui
-from validation_panel import REPORT_KEY
 
 st.set_page_config(page_title="Forecasting Engine", page_icon=":material/monitoring:")
 
@@ -24,4 +23,4 @@ ui.page_header(
 )
 
 with st.container(border=True, key="fe-card-quality-report"):
-    quality_report_panel.render(st.session_state.get(REPORT_KEY))
+    bloomberg_extraction_panel.render_summary()
