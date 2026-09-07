@@ -41,7 +41,7 @@ _SEVERITY_WORD = {
 def render(report: QualityReport | None) -> None:
     """Draw the report, or a pending state when there is nothing to draw yet."""
     ui.inject()
-    st.subheader("Data Quality Report")
+    st.subheader("Data quality report")
 
     if report is None:
         _render_awaiting_upload()

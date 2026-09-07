@@ -33,7 +33,7 @@ def render() -> AcceptedUpload | None:
     or None when there is nothing to validate.
     """
     ui.inject()
-    st.header("Upload Signal Data")
+    st.header("Upload signal data")
     st.caption(
         f"**A single CSV of daily market and macroeconomic signals, up to {_LIMIT_MB} MB. "
         "See docs/data-specification.md for the column contract.**"
