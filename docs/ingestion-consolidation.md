@@ -1,5 +1,11 @@
 # Ingestion consolidation: one converter, one validator, one of each check
 
+> **Historical record, superseded for the active dashboard.** The Data page now
+> exposes only the generic Bloomberg multi-file extraction workflow. It accepts
+> original Bloomberg fields without mapping them through the temporary signal-CSV
+> contract. The robust MAD method and cached/manual Fama-French handling were
+> retained and adapted to that generic workflow.
+
 By early September 2026 the repository held two validation layers, two outlier
 methods, two calendar approaches and three ways to get data in, spread across
 `main` and three branches. This document records which one survives in each

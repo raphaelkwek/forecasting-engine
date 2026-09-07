@@ -3,7 +3,7 @@
 Pandera enforces structure — the date column is unique, non-null and sorted;
 every data column is numeric and, for price-like columns, positive. Everything
 a real market can legitimately produce — a duplicate date from a revision, a
-weekend row, a genuine 25%+ move — is reported rather than rejected, so a
+weekend row, a statistically unusual move — is reported rather than rejected, so a
 human sees it before the file is used instead of it being silently dropped.
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 import pandera.pandas as pa
 
@@ -22,8 +23,11 @@ from forecasting_engine.extraction.bloomberg_csv import DATE_COLUMN, DATE_DISPLA
 #: fixed set of securities here to build one against.
 PRICE_FIELD_MARKERS: tuple[str, ...] = ("PX_", "TOT_RETURN")
 
-#: Day-over-day absolute % change worth flagging for a human to eyeball.
-JUMP_THRESHOLD = 0.25
+#: Robust z-score of a day-over-day change worth flagging for review. Financial
+#: returns are fat-tailed; calibration on the real ten-year exports put a useful
+#: review volume at eight rather than the textbook three.
+MAD_THRESHOLD = 8.0
+_MAD_TO_SIGMA = 0.6745
 
 #: Generic bound for columns that are not price-like. Loose on purpose — it is
 #: a sanity net against a badly wrong export, not a documented per-signal range.
@@ -138,9 +142,40 @@ def _big_moves(frame: pd.DataFrame) -> pd.DataFrame:
     for col in frame.columns:
         if col == DATE_COLUMN:
             continue
-        pct = pd.to_numeric(frame[col], errors="coerce").pct_change().abs()
-        for idx in pct.index[pct > JUMP_THRESHOLD]:
+        changes = pd.to_numeric(frame[col], errors="coerce").diff()
+        scores = _robust_z(changes.dropna()).abs()
+        flagged = _drop_rebounds(scores[scores > MAD_THRESHOLD], changes)
+        for idx, score in flagged.items():
             rows.append(
-                {"column": col, "date": frame.loc[idx, DATE_COLUMN], "pct_change": pct.loc[idx]}
+                {
+                    "column": col,
+                    "date": frame.loc[idx, DATE_COLUMN],
+                    "change": changes.loc[idx],
+                    "robust_score": score,
+                }
             )
-    return pd.DataFrame(rows, columns=["column", "date", "pct_change"])
+    return pd.DataFrame(rows, columns=["column", "date", "change", "robust_score"])
+
+
+def _robust_z(values: pd.Series) -> pd.Series:
+    """Median-absolute-deviation score, with a zero-MAD fallback."""
+    median = values.median()
+    if np.isnan(median):
+        return pd.Series(0.0, index=values.index)
+    spread = (values - median).abs().median()
+    if not spread or np.isnan(spread):
+        spread = (values - median).abs().mean()
+    if not spread or np.isnan(spread):
+        return pd.Series(0.0, index=values.index)
+    return _MAD_TO_SIGMA * (values - median) / spread
+
+
+def _drop_rebounds(flagged: pd.Series, changes: pd.Series) -> pd.Series:
+    """Collapse an anomalous value's opposite-direction rebound into its first flag."""
+    positions = list(flagged.index)
+    rebounds = set()
+    for earlier, later in zip(positions, positions[1:], strict=False):
+        adjacent = changes.index.get_loc(later) - changes.index.get_loc(earlier) == 1
+        if adjacent and changes.loc[earlier] * changes.loc[later] < 0:
+            rebounds.add(later)
+    return flagged.drop(index=list(rebounds))

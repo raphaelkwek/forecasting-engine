@@ -17,6 +17,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from io import StringIO
 
 import pandas as pd
@@ -155,13 +156,20 @@ def missing_row_report(frame: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["Date", "Missing columns", "Likely reason"])
 
     gap_dates = frame.loc[missing_mask, DATE_COLUMN]
-    holidays = _holidays_between(gap_dates.min(), gap_dates.max())
+    readable_dates = gap_dates.dropna()
+    holidays = (
+        _holidays_between(readable_dates.min(), readable_dates.max())
+        if not readable_dates.empty
+        else set()
+    )
 
     rows = []
     for idx in frame.index[missing_mask]:
         date = frame.loc[idx, DATE_COLUMN]
         missing = [c for c in data_columns if pd.isna(frame.loc[idx, c])]
-        if date.weekday() >= 5:
+        if pd.isna(date):
+            reason = "Unreadable date"
+        elif date.weekday() >= 5:
             reason = "Weekend"
         elif date.normalize() in holidays:
             reason = f"Likely {_HOLIDAY_CALENDAR} market holiday"
@@ -173,6 +181,7 @@ def missing_row_report(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@lru_cache(maxsize=32)
 def _holidays_between(start: pd.Timestamp, end: pd.Timestamp) -> set[pd.Timestamp]:
     """Weekdays in ``[start, end]`` that ``_HOLIDAY_CALENDAR`` was closed for."""
     calendar = mcal.get_calendar(_HOLIDAY_CALENDAR)

@@ -1,7 +1,8 @@
 """The Bloomberg extraction panel: file upload, merge, validate, download.
 
-Rendering only. Parsing, merging, validation and the Fama-French fetch all
-live in ``forecasting_engine.extraction`` and know nothing about Streamlit.
+Rendering only. Parsing, merging and validation live in
+``forecasting_engine.extraction`` and know nothing about Streamlit. The cached
+Fama-French download is shared from ``forecasting_engine.ingest``.
 
 The validation report renderer is shared between this page and the Home
 page's summary — that sharing is the whole integration between the two.
@@ -13,8 +14,10 @@ import pandas as pd
 import streamlit as st
 
 import ui
-from forecasting_engine.extraction import bloomberg_csv, fama_french, validation, workbook
+from forecasting_engine.extraction import bloomberg_csv, validation, workbook
 from forecasting_engine.extraction.validation import ValidationReport
+from forecasting_engine.ingest import fama_french
+from forecasting_engine.ingest.fama_french import FactorFetchError, FactorFile
 from forecasting_engine.ingest.upload import (
     MAX_UPLOAD_BYTES,
     UploadError,
@@ -25,11 +28,7 @@ from forecasting_engine.ingest.upload import (
 #: The merged frame and its report, for the Home page to read back.
 MERGED_KEY = "extraction_merged"
 REPORT_KEY = "extraction_report"
-
-
-@st.cache_data(ttl=86_400, show_spinner="Downloading Fama-French factors...")
-def _fetch_fama_french():
-    return fama_french.fetch()
+FACTORS_KEY = "fama_french"
 
 
 def _fmt(date) -> str:
@@ -86,44 +85,71 @@ def render() -> None:
     st.session_state[REPORT_KEY] = report
     _render_report(report, merged)
 
-    try:
-        ff = _fetch_fama_french()
-    except Exception as exc:  # noqa: BLE001 - a network/parse failure, shown as-is
-        st.error(f"Could not fetch Fama-French factors: {exc}")
-        return
-    ff = fama_french.restrict_to(ff, merged["Date"].min(), merged["Date"].max())
-
     st.markdown(ui.eyebrow("Fama-French Factors"), unsafe_allow_html=True)
-    if ff.empty:
-        st.caption("No Fama-French rows fall within the Bloomberg data's date range.")
-    else:
-        st.caption(f"{len(ff):,} rows, {_fmt(ff['Date'].min())} to {_fmt(ff['Date'].max())}.")
-        st.dataframe(bloomberg_csv.with_display_dates(ff.head(10)), width="stretch")
+    factors = _factor_file()
+    if st.button("Download the latest factors"):
+        factors = _download_factors()
+    ff = _render_factors(factors, merged)
 
     excluded = _render_gap_review(merged)
     download_merged = merged[~merged["Date"].isin(excluded)] if excluded else merged
 
-    col1, col2, col3, _spacer = st.columns([1, 1, 1, 2])
-    col1.download_button(
-        "Signals (.csv)",
+    st.download_button(
+        "Bloomberg merged (.csv)",
         data=bloomberg_csv.with_display_dates(download_merged).to_csv(index=False).encode(),
-        file_name="signals.csv",
+        file_name="bloomberg_merged.csv",
         mime="text/csv",
     )
-    col2.download_button(
-        "Fama-French only (.csv)",
-        data=bloomberg_csv.with_display_dates(ff).to_csv(index=False).encode(),
-        file_name="fama_french_factors.csv",
-        mime="text/csv",
+    if ff is not None:
+        factor_csv, combined = st.columns(2)
+        factor_csv.download_button(
+            "Fama-French only (.csv)",
+            data=bloomberg_csv.with_display_dates(ff).to_csv(index=False).encode(),
+            file_name="fama_french_factors.csv",
+            mime="text/csv",
+        )
+        combined.download_button(
+            "Workbook (.xlsx)",
+            data=workbook.build(
+                bloomberg_csv.with_display_dates(download_merged),
+                bloomberg_csv.with_display_dates(ff),
+            ),
+            file_name="Bloomberg + Fama-French.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+
+def _factor_file() -> FactorFile | None:
+    if FACTORS_KEY not in st.session_state:
+        st.session_state[FACTORS_KEY] = fama_french.load_latest()
+    return st.session_state[FACTORS_KEY]
+
+
+def _download_factors() -> FactorFile | None:
+    try:
+        st.session_state[FACTORS_KEY] = fama_french.download()
+    except FactorFetchError as exc:
+        st.error(f"Could not download the factor file: {exc}")
+    return st.session_state.get(FACTORS_KEY)
+
+
+def _render_factors(factors: FactorFile | None, merged: pd.DataFrame) -> pd.DataFrame | None:
+    if factors is None:
+        st.info("No factor file yet. Download one to preview it and enable factor downloads.")
+        return None
+    ff = fama_french.restrict_to(
+        factors.frame, merged["Date"].min(), merged["Date"].max()
     )
-    col3.download_button(
-        "Workbook (.xlsx)",
-        data=workbook.build(
-            bloomberg_csv.with_display_dates(download_merged), bloomberg_csv.with_display_dates(ff)
-        ),
-        file_name="Signal + Fama-French.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    st.caption(
+        f"{len(ff):,} rows within the Bloomberg dates. "
+        f"Content hash {factors.source.short_hash}."
     )
+    if ff.empty:
+        st.caption("No Fama-French rows fall within the Bloomberg data's date range.")
+    else:
+        st.caption(f"{_fmt(ff['Date'].min())} to {_fmt(ff['Date'].max())}.")
+        st.dataframe(bloomberg_csv.with_display_dates(ff.head(10)), width="stretch")
+    return ff
 
 
 def _render_gap_review(merged: pd.DataFrame) -> set[pd.Timestamp]:
@@ -311,12 +337,16 @@ def _render_breakdown(report: ValidationReport) -> None:
             st.markdown(row, unsafe_allow_html=True)
 
     for column, moves in _by_column(report.big_moves):
-        with st.expander(f"{column} — {len(moves)} move{'s' if len(moves) != 1 else ''} over 25%"):
+        with st.expander(
+            f"{column} — {len(moves)} statistically unusual "
+            f"move{'s' if len(moves) != 1 else ''}"
+        ):
             rows_html = "".join(
                 ui.finding_row(
                     ui.lozenge("Info", "info"),
                     _fmt(move["date"]),
-                    f"{move['pct_change']:.1%} day-over-day change",
+                    f"{move['change']:+,.4g} day-over-day change, "
+                    f"{move['robust_score']:.0f}x the typical move",
                 )
                 for move in moves
             )

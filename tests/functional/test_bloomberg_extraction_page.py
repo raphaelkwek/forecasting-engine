@@ -7,6 +7,8 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from forecasting_engine.ingest.fama_french import FactorFile
+from forecasting_engine.ingest.provenance import SourceFile
 from forecasting_engine.ingest.upload import MAX_UPLOAD_BYTES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -31,8 +33,17 @@ def no_network_fetch(monkeypatch):
     sys.path.insert(0, str(APP_DIR))
     import bloomberg_extraction_panel
 
+    factor_file = FactorFile(
+        frame=FAKE_FACTORS,
+        source=SourceFile.of("fama_french.csv", b"Date,Mkt-RF\n2020-01-02,0.1\n"),
+    )
     monkeypatch.setattr(bloomberg_extraction_panel.fama_french, "fetch", lambda: FAKE_FACTORS)
-    bloomberg_extraction_panel._fetch_fama_french.clear()
+    monkeypatch.setattr(
+        bloomberg_extraction_panel.fama_french, "load_latest", lambda: None, raising=False
+    )
+    monkeypatch.setattr(
+        bloomberg_extraction_panel.fama_french, "download", lambda: factor_file, raising=False
+    )
 
 
 @pytest.fixture
@@ -109,18 +120,28 @@ def test_duplicate_dates_are_reported_and_named(page):
     assert "02/01/2020" in texts(result.markdown)
 
 
-def test_all_three_downloads_are_offered_after_a_successful_merge(page):
+def test_factor_download_is_manual_and_signals_remain_available_before_it(page):
     result = upload(page, [("spx.csv", SPX, "text/csv")])
+
     labels = [d.label for d in result.download_button]
-    assert "Signals (.csv)" in labels
-    assert "Fama-French only (.csv)" in labels
-    assert "Workbook (.xlsx)" in labels
+    assert labels == ["Bloomberg merged (.csv)"]
+    assert "No factor file yet" in texts(result.info)
+    assert "Download the latest factors" in [button.label for button in result.button]
 
 
-def test_fama_french_factors_are_previewed_on_the_page_not_only_in_the_download(page):
+def test_requested_factors_are_previewed_and_enable_factor_downloads(page):
     result = upload(page, [("spx.csv", SPX, "text/csv")])
+    button = next(
+        button for button in result.button if button.label == "Download the latest factors"
+    )
+
+    result = button.click().run()
+
     assert "Fama-French Factors" in texts(result.markdown)
     assert "02/01/2020" in texts(result.caption)
+    labels = [d.label for d in result.download_button]
+    assert "Fama-French only (.csv)" in labels
+    assert "Workbook (.xlsx)" in labels
 
 
 def test_the_uploader_is_always_multi_file_without_a_toggle(page):

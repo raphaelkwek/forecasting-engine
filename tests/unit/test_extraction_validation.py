@@ -51,14 +51,28 @@ def test_missing_pct_is_reported_per_column_and_nulls_are_not_an_error():
     assert not report.schema_errors
 
 
-def test_a_big_day_over_day_move_is_flagged():
-    data = frame(
-        ["2024-01-01", "2024-01-02", "2024-01-03"],
-        A_Index_PX_LAST=[100.0, 100.0, 200.0],
-    )
+def test_an_isolated_move_is_flagged_by_robust_mad_and_its_rebound_is_collapsed():
+    dates = pd.date_range("2024-01-01", periods=60)
+    values = [100.0 + i for i in range(60)]
+    values[30] = 200.0
+    data = frame(dates, A_Index_PX_LAST=values)
+
     report = validate(data)
+
     assert len(report.big_moves) == 1
     assert report.big_moves.iloc[0]["column"] == "A_Index_PX_LAST"
+    assert report.big_moves.iloc[0]["robust_score"] > 8
+
+
+def test_large_percentage_moves_are_not_outliers_when_they_are_typical_for_the_series():
+    data = frame(
+        pd.date_range("2024-01-01", periods=8),
+        A_Index_SPREAD=[1.0, 1.4, 1.8, 2.2, 2.6, 3.0, 3.4, 3.8],
+    )
+
+    report = validate(data)
+
+    assert report.big_moves.empty
 
 
 def test_a_negative_price_column_is_a_schema_error():
