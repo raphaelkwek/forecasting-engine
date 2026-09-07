@@ -1,4 +1,4 @@
-"""Parsing the Fama-French 5-factor daily CSV out of its zip.
+"""Parsing the Fama-French five-factor daily CSV, and keeping a copy of it.
 
 The real file wraps the data table in explanatory prose with no fixed line
 count, so these fixtures vary the amount of surrounding text to prove the
@@ -9,8 +9,17 @@ import io
 import zipfile
 
 import pandas as pd
+import pytest
 
-from forecasting_engine.extraction.fama_french import parse, restrict_to
+from forecasting_engine.ingest import fama_french
+from forecasting_engine.ingest.fama_french import (
+    FactorFetchError,
+    download,
+    load_latest,
+    parse,
+    restrict_to,
+    save,
+)
 
 CSV_BODY = """This file was created by CMPT_ME_BEME_OP_INV_RETS.
 Copyright 2024 Kenneth R. French
@@ -30,9 +39,11 @@ def zip_bytes(body: str = CSV_BODY) -> bytes:
     return buffer.getvalue()
 
 
+# --- parsing -----------------------------------------------------------------
+
+
 def test_preamble_and_footer_prose_are_stripped():
-    frame = parse(zip_bytes())
-    assert len(frame) == 2
+    assert len(parse(zip_bytes())) == 2
 
 
 def test_only_rows_with_an_8_digit_date_are_kept():
@@ -41,35 +52,86 @@ def test_only_rows_with_an_8_digit_date_are_kept():
 
 
 def test_columns_are_the_five_factors_plus_rf():
-    frame = parse(zip_bytes())
-    assert list(frame.columns) == ["Date", "Mkt-RF", "SMB", "HML", "RMW", "CMA", "RF"]
+    assert list(parse(zip_bytes()).columns) == ["Date", "Mkt-RF", "SMB", "HML", "RMW", "CMA", "RF"]
 
 
 def test_values_are_numeric():
-    frame = parse(zip_bytes())
-    assert frame["Mkt-RF"].iloc[0] == -0.67
+    assert parse(zip_bytes())["Mkt-RF"].iloc[0] == -0.67
 
 
 def test_a_longer_preamble_does_not_shift_the_result():
     longer = "extra line one\nextra line two\nextra line three\n" + CSV_BODY
-    frame = parse(zip_bytes(longer))
-    assert len(frame) == 2
+    assert len(parse(zip_bytes(longer))) == 2
 
 
-# --- restricting to a date range ----------------------------------------
+def test_a_zip_without_a_csv_is_refused():
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("readme.txt", "nothing here")
+    with pytest.raises(ValueError, match="no CSV"):
+        parse(buffer.getvalue())
+
+
+# --- restricting to a date range ---------------------------------------------
 
 
 def test_restrict_to_keeps_only_the_requested_range():
     frame = parse(zip_bytes())
-    restricted = restrict_to(
-        frame, pd.Timestamp("1963-07-02"), pd.Timestamp("1963-07-02")
-    )
+    restricted = restrict_to(frame, pd.Timestamp("1963-07-02"), pd.Timestamp("1963-07-02"))
     assert list(restricted["Date"]) == [pd.Timestamp("1963-07-02")]
 
 
 def test_restrict_to_an_end_past_the_data_just_returns_what_exists():
     frame = parse(zip_bytes())
-    restricted = restrict_to(
-        frame, pd.Timestamp("1963-07-01"), pd.Timestamp("2030-01-01")
-    )
+    restricted = restrict_to(frame, pd.Timestamp("1963-07-01"), pd.Timestamp("2030-01-01"))
     assert len(restricted) == 2
+
+
+# --- keeping a copy, named by content ----------------------------------------
+
+
+def test_save_writes_the_file_under_its_content_hash(tmp_path):
+    stored = save(parse(zip_bytes()), tmp_path)
+
+    path = tmp_path / f"{stored.source.sha256}.csv"
+    assert path.exists()
+    assert stored.source.path == path
+    assert stored.source.name == "fama_french_5_factors_daily.csv"
+
+
+def test_saving_the_same_data_twice_resolves_to_one_file(tmp_path):
+    first = save(parse(zip_bytes()), tmp_path)
+    second = save(parse(zip_bytes()), tmp_path)
+
+    assert first.source.sha256 == second.source.sha256
+    assert len(list(tmp_path.iterdir())) == 1
+
+
+def test_load_latest_reads_back_what_was_saved(tmp_path):
+    saved = save(parse(zip_bytes()), tmp_path)
+    loaded = load_latest(tmp_path)
+
+    assert loaded is not None
+    assert loaded.source.sha256 == saved.source.sha256
+    assert list(loaded.frame["Date"]) == list(saved.frame["Date"])
+    assert loaded.frame["Mkt-RF"].tolist() == saved.frame["Mkt-RF"].tolist()
+
+
+def test_load_latest_is_none_when_nothing_was_downloaded(tmp_path):
+    assert load_latest(tmp_path / "absent") is None
+    assert load_latest(tmp_path) is None
+
+
+def test_download_fetches_and_keeps_the_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(fama_french, "fetch", lambda: parse(zip_bytes()))
+    stored = download(tmp_path)
+    assert stored.source.path is not None and stored.source.path.exists()
+
+
+def test_a_failed_fetch_is_one_named_error(monkeypatch):
+    def broken(*args, **kwargs):
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(fama_french, "urlopen", broken)
+    with pytest.raises(FactorFetchError, match="no route to host"):
+        fama_french.fetch()
