@@ -61,6 +61,11 @@ def test_the_parsed_frame_carries_every_column_through(in_a_scratch_workspace):
         ("disguised.csv", b"PK\x03\x04" + bytes(range(256)), CsvParseError),
         ("huge.csv", b"a,b\n" + b"1,2\n" * (MAX_UPLOAD_BYTES // 4), FileSizeError),
     ],
+    # Named so the 25 MB case does not become a 25 MB test id. pytest exports
+    # the running test's id as PYTEST_CURRENT_TEST, and Windows caps one
+    # environment variable at 32,767 characters, so the unnamed id errored at
+    # teardown on every Windows machine while CI on Ubuntu stayed green.
+    ids=["spreadsheet", "disguised", "oversized"],
 )
 def test_a_rejected_upload_writes_nothing_anywhere(filename, data, expected):
     with pytest.raises(expected):
