@@ -1,130 +1,124 @@
 """Shared presentation for the dashboard.
 
-Trading-terminal visual language: black canvas, orange accent, gold for
-brand emphasis. Semantic colour (success/warning/danger/info) stays on its
-own conventional hues, never orange/gold, so a "blocking issue" badge is
-never mistaken for decoration.
+The visual language is GitHub Primer's, which Atlassian's shares its bones with:
+an enterprise blue accent, neutral greys carrying the structure, and semantic
+colour reserved for state. The palette lives in ``.streamlit/config.toml``; this
+module holds the two patterns Streamlit has no component for.
 
-Theme is resolved from ``st.context.theme.type`` — the viewer's actual
-active theme — rather than ``theme.base``, which only reports the server's
-configured default and can't see a manual flip of Streamlit's own theme
-switch.
+**Status lozenges.** A short uppercase badge is how both systems show state, and
+it reads at a glance in a way a coloured word does not.
 
-CSS and the animated plexus background live in ``app/assets/`` as real
-``.css``/``.html`` files, loaded once at import time, rather than as string
-literals in this module.
+**Status rows.** Name on the left, state on the right, a hairline between.
+
+Colours are duplicated here as custom properties rather than read from
+Streamlit, which renders through hashed emotion classes and exposes no variables
+to borrow. They are keyed off ``prefers-color-scheme``, which is what Streamlit
+itself follows when choosing between the config's light and dark palettes, so
+the two stay in step. A viewer who overrides the theme in Streamlit's own
+settings menu is the one case where they can diverge.
 
 No emoji anywhere: an internal analytical tool should read as a tool.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import streamlit as st
-import streamlit.components.v1 as components
 
 TONES: tuple[str, ...] = ("neutral", "info", "success", "warning", "danger")
 
-_ASSETS = Path(__file__).parent / "assets"
+_CSS = """
+<style>
+  :root {
+    --fe-neutral-bg: #EFF2F5; --fe-neutral-fg: #59636E;
+    --fe-info-bg:    #DDF4FF; --fe-info-fg:    #0550AE;
+    --fe-success-bg: #DAFBE1; --fe-success-fg: #1A7F37;
+    --fe-warning-bg: #FFF8C5; --fe-warning-fg: #7D4E00;
+    --fe-danger-bg:  #FFEBE9; --fe-danger-fg:  #CF222E;
+    --fe-border:     #D1D9E0;
+    --fe-muted:      #59636E;
+  }
 
-# app_bg/surface match .streamlit/config.toml's backgroundColor/secondaryBackgroundColor.
-_PALETTES = {
-    "dark": {
-        "app_bg": "#0A0807",
-        "surface": "#171310",
-        "neutral_bg": "#171310",
-        "neutral_fg": "#B8ADA0",
-        "info_bg": "#0F2429",
-        "info_fg": "#4DD8E8",
-        "success_bg": "#12261A",
-        "success_fg": "#2ECC71",
-        "warning_bg": "#2B2210",
-        "warning_fg": "#FFC94A",
-        "danger_bg": "#2E1212",
-        "danger_fg": "#FF4D4D",
-        "border": "#332A1E",
-        "muted": "#B8ADA0",
-        "orange": "#FF6A00",
-        "gold": "#D4AF37",
-        "plexus_nodes": ("#FF6A00", "#FFCB47"),
-        "plexus_line": "#FFCB47",
-    },
-    "light": {
-        "app_bg": "#FFFDF9",
-        "surface": "#FBF3E7",
-        "neutral_bg": "#EDE4D3",
-        "neutral_fg": "#4A4238",
-        "info_bg": "#E3F3F4",
-        "info_fg": "#0B5F68",
-        "success_bg": "#E7F6EC",
-        "success_fg": "#196538",
-        "warning_bg": "#FFF3D6",
-        "warning_fg": "#6E4D00",
-        "danger_bg": "#FBE9E7",
-        "danger_fg": "#A6301F",
-        "border": "#E7D9C3",
-        "muted": "#4A4238",
-        "orange": "#C1440E",
-        "gold": "#7A5100",
-        "plexus_nodes": ("#0891B2", "#22D3EE"),
-        "plexus_line": "#0891B2",
-    },
-}
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fe-neutral-bg: #21262D; --fe-neutral-fg: #9198A1;
+      --fe-info-bg:    #121D2F; --fe-info-fg:    #4493F8;
+      --fe-success-bg: #0F2417; --fe-success-fg: #3FB950;
+      --fe-warning-bg: #272115; --fe-warning-fg: #D29922;
+      --fe-danger-bg:  #2A1618; --fe-danger-fg:  #F85149;
+      --fe-border:     #3D444D;
+      --fe-muted:      #9198A1;
+    }
+  }
 
+  /* Streamlit prints its own server.maxUploadSize inside the dropzone. Ours is
+     deliberately looser than the documented limit, so showing it would
+     contradict the caption above the control. */
+  [data-testid="stFileUploaderDropzoneInstructions"] { display: none; }
 
-def _active_theme() -> str:
-    """The viewer's actual active theme, falling back to the server default."""
-    reported = st.context.theme.type
-    if reported in ("light", "dark"):
-        return reported
-    return "light" if st.get_option("theme.base") == "light" else "dark"
+  .fe-lozenge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
 
+  .fe-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--fe-border);
+  }
+  .fe-row:last-child { border-bottom: none; }
+  .fe-row-name { font-size: 14px; }
+  .fe-row-meta { color: var(--fe-muted); font-size: 12.5px; }
 
-def _root_vars(p: dict[str, str]) -> str:
-    """The ``:root { --fe-*: ...; }`` block for one resolved palette."""
-    return (
-        "<style>:root {"
-        f"--fe-neutral-bg:{p['neutral_bg']};--fe-neutral-fg:{p['neutral_fg']};"
-        f"--fe-info-bg:{p['info_bg']};--fe-info-fg:{p['info_fg']};"
-        f"--fe-success-bg:{p['success_bg']};--fe-success-fg:{p['success_fg']};"
-        f"--fe-warning-bg:{p['warning_bg']};--fe-warning-fg:{p['warning_fg']};"
-        f"--fe-danger-bg:{p['danger_bg']};--fe-danger-fg:{p['danger_fg']};"
-        f"--fe-border:{p['border']};--fe-muted:{p['muted']};"
-        f"--fe-orange:{p['orange']};--fe-gold:{p['gold']};--fe-surface:{p['surface']};"
-        "}</style>"
-    )
+  /* One finding per line. The message is prose of unpredictable length, so it
+     gets the full width and wraps, rather than being clipped inside a table
+     cell. Location and value sit above it in a muted meta line. */
+  .fe-finding {
+    padding: 9px 0;
+    border-bottom: 1px solid var(--fe-border);
+  }
+  .fe-finding:last-child { border-bottom: none; }
+  .fe-finding-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+  .fe-finding-where { color: var(--fe-muted); font-size: 12.5px; }
+  .fe-finding-detail { font-size: 14px; line-height: 1.45; }
 
-
-_STATIC_CSS = f"\n<style>\n{(_ASSETS / 'dashboard.css').read_text()}\n</style>\n"
-_PLEXUS_HTML = (_ASSETS / "plexus.html").read_text()
+  .fe-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--fe-muted);
+    margin-bottom: 2px;
+  }
+</style>
+"""
 
 
 def inject() -> None:
     """Add the shared stylesheet to the current page.
 
-    Called unconditionally on every run: Streamlit renders each page from
-    scratch, so a session-scoped guard would leave the second page unstyled.
+    Called on every run rather than guarded by a session flag. Streamlit renders
+    each page from scratch, so a stylesheet injected on the Data page is not
+    present on Home — a session-scoped guard silently leaves the second page
+    unstyled. Two identical style elements in one run are inert, so the
+    unconditional call is the safe one.
     """
-    palette = _PALETTES[_active_theme()]
-    st.markdown(_root_vars(palette) + _STATIC_CSS, unsafe_allow_html=True)
-
-
-def animated_background(page: str) -> None:
-    """The drifting plexus canvas behind the whole app.
-
-    Call first, before any other content, so it paints earliest and sits
-    behind everything else without needing a negative z-index. ``page`` is a
-    distinct label (e.g. "home", "data") baked into the markup so this
-    component's identity never collides with the same call on another page.
-    """
-    html = (
-        _PLEXUS_HTML.replace("__THEMES_JSON__", json.dumps(_PALETTES))
-        .replace("__DEFAULT_THEME__", _active_theme())
-        .replace("__PAGE__", page)
-    )
-    components.html(html, height=1)
+    st.markdown(_CSS, unsafe_allow_html=True)
 
 
 def lozenge(text: str, tone: str = "neutral") -> str:
@@ -162,27 +156,3 @@ def finding_row(badge: str, where: str, detail: str) -> str:
 def eyebrow(text: str) -> str:
     """A small uppercase section label."""
     return f'<div class="fe-eyebrow">{text}</div>'
-
-
-def page_header(title: str, subtitle: str = "", *, eyebrow_text: str = "FINLYTICS") -> None:
-    """The hero block at the top of a page: brand eyebrow, gradient title, subtitle."""
-    sub = f'<div class="fe-hero-subtitle">{subtitle}</div>' if subtitle else ""
-    st.markdown(
-        f'<div class="fe-hero">'
-        f'<div class="fe-hero-eyebrow">{eyebrow_text}</div>'
-        f'<div class="fe-hero-title">{title}</div>'
-        f"{sub}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def sidebar_brand() -> None:
-    """The brand mark under the page nav in the sidebar."""
-    st.sidebar.markdown(
-        '<div class="fe-sidebar-brand">'
-        '<div class="fe-sidebar-mark">Finlytics</div>'
-        '<div class="fe-sidebar-name">Forecasting Engine</div>'
-        "</div>",
-        unsafe_allow_html=True,
-    )

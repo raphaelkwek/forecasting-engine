@@ -47,6 +47,15 @@ def test_the_security_comes_from_the_metadata_block():
     assert read_export("a.csv", export(security="VIX Index")).security == "VIX Index"
 
 
+def test_trailing_empty_metadata_cells_are_ignored_like_bloomberg_exports_them():
+    data = export().replace(b"Security,SPX Index", b"Security,SPX Index,")
+
+    exported = read_export("spx.csv", data)
+
+    assert exported.security == "SPX Index"
+    assert exported.column == "spx_close"
+
+
 def test_a_file_with_no_security_still_reads_but_cannot_be_placed():
     exported = read_export("mystery.csv", export(metadata_lines=0))
     assert exported.security == ""

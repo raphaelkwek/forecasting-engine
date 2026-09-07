@@ -11,7 +11,6 @@ import streamlit as st
 
 import bloomberg_panel
 import fama_french_panel
-import ui
 import upload_panel
 import validation_panel
 
@@ -20,11 +19,9 @@ BLOOMBERG = "Bloomberg exports"
 
 st.set_page_config(page_title="Data · Forecasting Engine", page_icon=":material/database:")
 
-ui.animated_background("data")
-ui.inject()
-ui.sidebar_brand()
-ui.page_header(
-    "Data", "Upload the signal CSV that feeds every forecast, or build it from Bloomberg exports."
+st.title("Data")
+st.write(
+    "Upload the signal CSV that feeds every forecast, or build it from Bloomberg exports."
 )
 
 source = st.radio(
@@ -37,11 +34,10 @@ source = st.radio(
     ),
 )
 
-with st.container(border=True, key="fe-card-upload"):
-    accepted = upload_panel.render() if source == SIGNAL_CSV else bloomberg_panel.render()
+accepted = upload_panel.render() if source == SIGNAL_CSV else bloomberg_panel.render()
 
 if accepted is not None:
-    with st.container(border=True, key="fe-card-validation"):
-        validation_panel.render(accepted)
-    with st.container(border=True, key="fe-card-factors"):
-        fama_french_panel.render(accepted)
+    st.divider()
+    validation_panel.render(accepted)
+    st.divider()
+    fama_french_panel.render(accepted)

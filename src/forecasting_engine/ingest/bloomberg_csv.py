@@ -24,6 +24,7 @@ exists to remove.
 
 from __future__ import annotations
 
+import csv
 import re
 from collections.abc import Iterable, Sequence
 from io import StringIO
@@ -151,10 +152,10 @@ def _metadata(lines: Sequence[str]) -> dict[str, str]:
     """The ``key,value`` pairs above the table, keys lower-cased."""
     found: dict[str, str] = {}
     for line in lines:
-        key, _, value = line.partition(",")
-        key = key.strip().strip('"').lower()
+        cells = next(csv.reader([line]))
+        key = cells[0].strip().lower() if cells else ""
         if key:
-            found[key] = value.strip().strip('"')
+            found[key] = cells[1].strip() if len(cells) > 1 else ""
     return found
 
 

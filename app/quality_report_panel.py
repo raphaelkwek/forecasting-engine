@@ -57,7 +57,7 @@ def render(report: QualityReport | None) -> None:
 def _render_awaiting_upload() -> None:
     """AC5: a legible pending state, not a blank page."""
     st.info("No data ingested yet. Upload a signal CSV on the **Data** page.")
-    st.caption("**These checks will run automatically once a file is accepted.**")
+    st.caption("These checks will run automatically once a file is accepted.")
     badge = ui.lozenge("Pending", "neutral")
     rows = "".join(ui.status_row(title, badge) for _, title in _pending_titles())
     st.markdown(rows, unsafe_allow_html=True)
