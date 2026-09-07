@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date
+from functools import cache
 
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -74,7 +75,20 @@ def expected_sessions(calendar: str, start: date, end: date) -> set[date]:
         return set()
     if calendar == WEEKDAYS:
         return {d.date() for d in pd.bdate_range(start, end)}
-    return {d.date() for d in mcal.get_calendar(calendar).valid_days(start, end)}
+    return {d.date() for d in _calendar(calendar).valid_days(start, end)}
+
+
+@cache
+def _calendar(name: str):
+    """One ``pandas_market_calendars`` instance per calendar, for the process.
+
+    ``get_calendar`` is a factory that returns a fresh instance every call, and
+    each instance rebuilds its holiday schedule on first use. A report asks for
+    a calendar twice per signal, so the ten-year check spent about three
+    seconds constructing the same three calendars sixteen times over. The
+    schedule never changes within a process, so build each once.
+    """
+    return mcal.get_calendar(name)
 
 
 def detect(frame: pd.DataFrame) -> QualitySection:

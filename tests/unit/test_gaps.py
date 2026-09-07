@@ -6,6 +6,7 @@ import pytest
 from forecasting_engine.quality.gaps import (
     CALENDARS,
     DEFAULT_CALENDAR,
+    _calendar,
     calendar_for,
     detect,
     expected_sessions,
@@ -264,3 +265,9 @@ def test_a_row_with_an_unreadable_date_reads_as_a_missing_session():
 
     flagged = {d for found in detect(frame(days)).findings for d in found.dates}
     assert "2024-12-23" in flagged
+
+
+def test_a_calendar_is_built_once_and_reused():
+    # get_calendar is a factory; without memoisation each call rebuilds the
+    # holiday schedule, and a report asks for one twice per signal.
+    assert _calendar("NYSE") is _calendar("NYSE")
