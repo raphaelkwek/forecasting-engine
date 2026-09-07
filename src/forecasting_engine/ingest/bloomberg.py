@@ -21,13 +21,17 @@ to the export.
 Gaps are left as gaps. Different indices keep different trading calendars, and
 the union of their dates has holes in most columns. Forward-filling here would
 hide from the quality report exactly what it exists to report.
+
+This module reads the workbook exports. ``ingest.bloomberg_csv`` reads the CSV
+ones into the same ``BloombergExport`` shape, and both go through ``combine``
+here: one converter, two readers.
 """
 
 from __future__ import annotations
 
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import openpyxl
@@ -78,13 +82,18 @@ NEAR_MISSES: Mapping[str, str] = {
 
 @dataclass(frozen=True)
 class BloombergExport:
-    """One workbook: what it holds, and where it came from."""
+    """One export: what it holds, and where it came from."""
 
     path: Path
+    """The file this came from. For an upload, a bare filename: only ``name`` is used."""
+
     security: str
     field: str
     series: pd.Series
-    """Values indexed by date, ascending."""
+    """Values indexed by ISO date, ascending, one row per date."""
+
+    notes: tuple[str, ...] = ()
+    """What the reader did to the file that a person should know about."""
 
     @property
     def column(self) -> str | None:
@@ -110,6 +119,9 @@ class ConversionReport:
 
     rows: int = 0
 
+    notes: list[str] = field(default_factory=list)
+    """Repairs the readers made and reported, such as a repeated date kept last."""
+
     @property
     def complete(self) -> bool:
         return not self.missing and not self.warnings
@@ -125,6 +137,8 @@ class ConversionReport:
             lines.append(f"  MISSING  {column:<18} no export supplied this")
         for note in self.warnings:
             lines.append(f"  SUSPECT  {note}")
+        for note in self.notes:
+            lines.append(f"  note     {note}")
         return "\n".join(lines)
 
 
@@ -158,12 +172,8 @@ def read_export(path: Path, field: str = DEFAULT_FIELD) -> BloombergExport:
     if field not in header:
         raise ValueError(f"{path.name} has no {field!r} column (found {header})")
 
-    return BloombergExport(
-        path=path,
-        security=security,
-        field=field,
-        series=_series(rows, header.index(field)),
-    )
+    series, notes = dedupe_dates(_series(rows, header.index(field)), path.name)
+    return BloombergExport(path=path, security=security, field=field, series=series, notes=notes)
 
 
 def combine(exports: Sequence[BloombergExport]) -> tuple[pd.DataFrame, ConversionReport]:
@@ -204,7 +214,26 @@ def combine(exports: Sequence[BloombergExport]) -> tuple[pd.DataFrame, Conversio
         missing=[c for c in REQUIRED_COLUMNS if c != DATE_COLUMN and c not in placed],
         warnings=suspicious(frame),
         rows=len(frame),
+        notes=[note for export in exports for note in export.notes],
     )
+
+
+def dedupe_dates(series: pd.Series, name: str) -> tuple[pd.Series, tuple[str, ...]]:
+    """Keep the last value for any date an export repeats, and say so.
+
+    A repeated date in an export is a revision republished under the same
+    date, and the contract keeps the last one. The join downstream needs one
+    row per date, so the repeat is resolved here rather than crashing the
+    merge, and it is reported rather than silent.
+    """
+    repeated = series.index.duplicated(keep="last")
+    if not repeated.any():
+        return series, ()
+    dates = sorted(set(series.index[repeated]))
+    shown = ", ".join(dates[:5]) + (f" and {len(dates) - 5} more" if len(dates) > 5 else "")
+    plural = "s" if len(dates) != 1 else ""
+    note = f"{name}: {len(dates)} repeated date{plural} ({shown}); the last value on each was kept"
+    return series[~repeated], (note,)
 
 
 def suspicious(frame: pd.DataFrame) -> list[str]:
@@ -257,6 +286,7 @@ def convert(
         missing=report.missing,
         warnings=report.warnings,
         rows=report.rows,
+        notes=report.notes,
     )
 
 
