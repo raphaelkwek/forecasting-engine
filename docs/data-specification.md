@@ -92,7 +92,9 @@ line 2.
 resolved by keeping the last occurrence, on the assumption that a repeated date
 is a revision rather than a mistake. Values outside the ranges above are flagged
 but retained — a genuine market dislocation looks a lot like an outlier, and
-dropping it would hide exactly the events the model most needs to see.
+dropping it would hide exactly the events the model most needs to see. A row
+dated on a Saturday or Sunday is reported too: daily market data has no weekend
+sessions, so one usually means a mis-keyed date or a stale row carried over.
 
 Dates must be ISO (`YYYY-MM-DD`). `01/02/2024` is rejected rather than guessed:
 it means 1 February or 2 January depending on who exported it, and that is

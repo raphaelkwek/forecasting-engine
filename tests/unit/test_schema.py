@@ -269,3 +269,25 @@ def test_unrecognised_placeholders_are_type_errors(token):
     frame = parse_csv(f"date,vix\n2024-01-01,{token}\n".encode())
     issues = [i for i in schema._numeric_issues(frame["vix"], _VIX) if i.kind == "non_numeric"]
     assert [i.rows for i in issues] == [(2,)]
+
+
+# --- rows dated on a weekend -----------------------------------------------
+
+
+def test_a_weekend_dated_row_is_reported_with_its_line():
+    frame = valid_frame()
+    frame["date"] = ["2024-01-05", "2024-01-06", "2024-01-08"]  # the 6th is a Saturday
+    (issue,) = [i for i in schema.validate(frame) if i.kind == "weekend_row"]
+
+    assert issue.count == 1
+    assert issue.rows == (3,)
+
+
+def test_a_weekend_row_does_not_block():
+    frame = valid_frame()
+    frame["date"] = ["2024-01-05", "2024-01-06", "2024-01-08"]
+    assert schema.blocking(schema.validate(frame)) == []
+
+
+def test_weekday_rows_are_not_mistaken_for_weekend_rows():
+    assert not [i for i in schema.validate(valid_frame()) if i.kind == "weekend_row"]

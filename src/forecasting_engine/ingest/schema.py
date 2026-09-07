@@ -157,6 +157,22 @@ def _date_issues(raw: pd.Series) -> list[SchemaIssue]:
             )
         )
 
+    # Daily market data has no Saturdays or Sundays. A row dated on one is
+    # usually an export artefact - a stale row carried over, or a mis-keyed
+    # date - and worth a look, but not a fault the file cannot survive.
+    weekend = dates.dt.dayofweek >= 5
+    weekends = int(weekend.sum())
+    if weekends:
+        issues.append(
+            SchemaIssue(
+                "weekend_row",
+                DATE_COLUMN,
+                "dates fall on a Saturday or Sunday",
+                weekends,
+                _at(weekend),
+            )
+        )
+
     present = dates.dropna()
     if not present.is_monotonic_increasing:
         issues.append(SchemaIssue("unsorted_dates", DATE_COLUMN, "dates are not ascending"))
