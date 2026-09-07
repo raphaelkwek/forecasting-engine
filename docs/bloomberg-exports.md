@@ -1,17 +1,33 @@
 # Exporting the signal data from Bloomberg
 
 The engine wants one CSV matching [the data specification](data-specification.md).
-Bloomberg exports one workbook per security. This document says which securities
-to pull, and how to turn the pile of workbooks into that one CSV.
+Bloomberg exports one file per security. This document says which securities
+to pull, and how to turn the pile of exports into that one CSV.
 
 ## What to export
 
-One workbook per row below, each with a `Data` sheet (`Date` plus the field) and
-a `Metadata` sheet whose `Security` row names the ticker. That is the default
+One export per row below, as either a CSV or a workbook. Both carry the same
+two things the converter reads: a `Date` column with the field beside it, and
+a metadata block whose `Security` entry names the ticker. That is the default
 shape of a Bloomberg history export, so nothing special is required — but the
 **`Security` value in the metadata is what the converter reads**, not the
-filename. A workbook named after the right ticker but holding the wrong one is
-the failure this has already hit once.
+filename. A file named after the right ticker but holding the wrong one is the
+failure this has already hit once.
+
+A CSV export is the metadata block, a blank line, then the table:
+
+```
+Security,SPX Index
+Start Date,1/1/2016
+End Date,12/31/2025
+Period,Daily
+
+Date,PX_LAST,PX_BID
+1/4/2016,2012.66,#N/A N/A
+```
+
+A workbook export holds the same table on a `Data` sheet and the metadata on a
+`Metadata` sheet.
 
 | Contract column | Bloomberg security | Field |
 |---|---|---|
@@ -44,6 +60,23 @@ only `TOT_RETURN_INDEX_GROSS_DVDS` has no `PX_LAST` column and is skipped.
 
 ## Converting
 
+**CSV exports** go in through the dashboard. On the **Data** page choose
+*Bloomberg exports*, drop every file in at once, and the page joins them on
+date, maps each security onto its contract column, and passes the result to
+the same schema validation and quality report as a file uploaded directly. It
+names what it could not place — a security the contract does not ask for, a
+near miss like `LF98TRUU`, a file with no `PX_LAST` — and which signals still
+have no export. Nothing needs a command line.
+
+**Dates in a CSV export** are `m/d/yyyy` or `d/m/yyyy` depending on the
+terminal's locale, and for any day up to the 12th the two look the same. The
+reader settles the order once per file from every date in it, the metadata's
+start and end dates included: a day above 12 anywhere decides it, and a file
+with none is read month first, Bloomberg's default. A file that mixes the two
+is refused rather than guessed. If a merged file's dates look a month out,
+check the terminal's date format setting.
+
+**Workbook exports** have a command-line converter that does the same join.
 Point it at the folder holding the workbooks — the shell expands the `*.xlsx`,
 so give it a real directory rather than copying this line verbatim:
 

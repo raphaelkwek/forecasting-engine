@@ -19,22 +19,28 @@ Then run the dashboard:
 uv run streamlit run app/Home.py
 ```
 
-It opens at <http://localhost:8501>. Go to the **Data** page and upload a signal
-CSV — see [docs/data-specification.md](docs/data-specification.md) for the
-column contract, the 25 MB size limit, and which placeholder tokens count as
-blank.
+It opens at <http://localhost:8501>. Go to the **Data** page. There are two
+ways in:
 
-Coming from Bloomberg? Its exports are one workbook per security, not one CSV.
-Convert them first:
+- **A signal CSV** already in the contract's shape — see
+  [docs/data-specification.md](docs/data-specification.md) for the column
+  contract, the 25 MB size limit, and which placeholder tokens count as blank.
+- **Bloomberg exports** — the terminal's own CSV history exports, one per
+  security. Drop them all in at once; the page joins them on date, maps each
+  security onto its contract column, and hands the result to the same
+  validation. See [docs/bloomberg-exports.md](docs/bloomberg-exports.md) for
+  which securities to pull.
+
+Workbook (`.xlsx`) exports have a command-line converter that does the same
+join:
 
 ```bash
 uv run python -m forecasting_engine.convert ~/Documents/FYP/exports/*.xlsx -o data/signals.csv
 ```
 
 Substitute your own export folder — the shell expands the `*.xlsx`, so
-`no matches found` means that path holds no workbooks. See
-[docs/bloomberg-exports.md](docs/bloomberg-exports.md) for which securities to
-pull.
+`no matches found` means that path holds no workbooks. Or save the workbooks
+as CSV and use the Data page.
 
 ## Checks
 
@@ -50,10 +56,16 @@ Both run in CI on every pull request.
 
 ## What works today
 
-The left edge of the pipeline: upload and validation.
+The left edge of the pipeline: getting data in, and checking it.
 
 - **Upload** — file type, size and CSV parsing, with the file stored under its
   content hash and the event logged to DuckDB.
+- **Bloomberg merge** — any number of Bloomberg CSV exports joined on date and
+  mapped onto the contract in the app, with the wrong-ticker mistakes named
+  (`LF98TRUU` for `LF98OAS`, `JPMVXYGL` for `JPMVXYG7`). The merged file is an
+  upload like any other.
+- **Fama-French factors** — Ken French's daily five-factor file, downloaded on
+  request and kept under its content hash for the FF5 benchmark.
 - **Schema validation** — required columns, per-column types and ranges,
   reporting the column, line number and date of each problem. Blocking faults
   halt the pipeline; range breaches are reported and retained.
@@ -70,15 +82,17 @@ Forecasting, portfolio construction and risk analysis are not built yet.
 
 ## Interface
 
-The dashboard follows [GitHub Primer](https://primer.style/foundations/color):
-an enterprise blue accent, neutral greys carrying the structure, and semantic
-green, amber and red reserved for state. Atlassian's system shares the same
-bones. Both themes are defined explicitly in `.streamlit/config.toml` rather
-than derived by inversion.
+The dashboard uses a trading-terminal palette: a dark canvas with an orange
+accent and gold for the brand mark, and a light counterpart with the same
+bones. Semantic green, amber and red are reserved for state and never share a
+hue with the accent, so a "blocking" badge is never mistaken for decoration.
+Both themes are defined explicitly in `.streamlit/config.toml`, and the page
+follows whichever the viewer has active. The stylesheet and the animated
+background live in `app/assets/`.
 
 Status appears as a lozenge — a short uppercase badge — rather than a coloured
 word or a symbol, because it reads at a glance in a list. `app/ui.py` holds that
-and the shared stylesheet.
+and the shared presentation helpers.
 
 No emoji anywhere: an internal analytical tool should read as a tool.
 
@@ -86,11 +100,13 @@ No emoji anywhere: an internal analytical tool should read as a tool.
 
 ```
 src/forecasting_engine/     core library, never imports Streamlit
-  ingest/                   upload, schema, validation
+  ingest/                   upload, schema, validation, the Bloomberg readers,
+                            Fama-French
   quality/                  the shared data quality report
   store/                    DuckDB history
 app/                        Streamlit dashboard, no maths
-  ui.py                     lozenges, status rows, shared stylesheet
+  ui.py                     lozenges, status rows, shared presentation
+  assets/                   stylesheet and animated background
 docs/                       data specification, design, decisions
 tests/                      unit, integration, functional
 ```
@@ -106,5 +122,8 @@ tests/                      unit, integration, functional
   against real data, and the evidence for each choice
 - [Market calendars](docs/market-calendars.md) — the calendar source, the
   per-signal mapping, and how gaps are reconciled against it
+- [Ingestion consolidation](docs/ingestion-consolidation.md) — why there is one
+  validator, one outlier method, one calendar approach and one converter, and
+  the evidence behind each
 - [Architecture design](docs/superpowers/specs/2026-07-29-forecasting-engine-architecture-design.md)
 - [Phase 0 plan](docs/superpowers/plans/2026-07-29-phase-0-scaffold-and-ingestion.md)

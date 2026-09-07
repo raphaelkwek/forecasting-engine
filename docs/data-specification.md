@@ -16,9 +16,10 @@ twin of the column contract — if you change one, change the other.
 
 ## Producing this file from Bloomberg
 
-Bloomberg exports one workbook per security, which is not this format. See
-[bloomberg-exports.md](bloomberg-exports.md) for the securities to pull and the
-converter that joins them into one CSV.
+Bloomberg exports one file per security, which is not this format. The Data
+page merges CSV exports into it directly; see
+[bloomberg-exports.md](bloomberg-exports.md) for the securities to pull and how
+the merge works.
 
 ## File format
 
