@@ -242,3 +242,25 @@ def test_a_very_long_gap_lists_a_sample_and_counts_the_rest():
     assert found.count > 100
     assert len(found.dates) == 10
     assert found.truncated
+
+
+# --- a blank date cell must not take the whole check down ------------------
+
+
+def test_a_blank_date_cell_does_not_crash_the_check():
+    # One unparseable date used to be dropped from the date series but not from
+    # the per-signal value mask, and the two no longer lined up: IndexError.
+    days = list(DECEMBER)
+    days[3] = None
+    section = detect(frame(days))
+
+    assert section.status in (CheckStatus.PASSED, CheckStatus.FLAGGED)
+    assert all(d for found in section.findings for d in found.dates)
+
+
+def test_a_row_with_an_unreadable_date_reads_as_a_missing_session():
+    days = list(DECEMBER)
+    days[3] = "not a date"  # that row was 2024-12-23
+
+    flagged = {d for found in detect(frame(days)).findings for d in found.dates}
+    assert "2024-12-23" in flagged

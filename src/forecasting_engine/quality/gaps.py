@@ -84,10 +84,10 @@ def detect(frame: pd.DataFrame) -> QualitySection:
     never enter the expected sequence in the first place.
     """
     dates = _dates(frame)
-    if dates is None or dates.empty:
+    if dates is None or dates.notna().sum() == 0:
         return _section([], {"reason": "no usable date column"})
 
-    present_rows = {d.date() for d in dates}
+    present_rows = {d.date() for d in dates.dropna()}
     signals = [s for s in _SIGNALS if s in frame.columns]
     used = {signal: calendar_for(signal) for signal in signals}
 
@@ -154,11 +154,8 @@ def _findings_for(
     frame: pd.DataFrame, signal: str, dates: pd.Series, present_rows: set[date]
 ) -> list[QualityFinding]:
     """Dates where the row exists but this one signal is blank."""
-    present = {
-        d.date()
-        for d in dates[pd.to_numeric(frame[signal], errors="coerce").notna().to_numpy()]
-        if not pd.isna(d)
-    }
+    has_value = pd.to_numeric(frame[signal], errors="coerce").notna().to_numpy()
+    present = {d.date() for d in dates[has_value] if not pd.isna(d)}
     if not present:
         return []
 
@@ -225,7 +222,14 @@ def _section(findings: list[QualityFinding], stats: dict) -> QualitySection:
 
 
 def _dates(frame: pd.DataFrame) -> pd.Series | None:
+    """The file's dates, one per row and positionally indexed.
+
+    Unparseable cells stay in place as ``NaT`` rather than being dropped, so
+    the series lines up with the frame's rows and a per-signal mask built from
+    a column can index it directly. Dropping them here is what used to turn
+    one blank date cell into an ``IndexError`` for the whole check.
+    """
     if DATE_COLUMN not in frame.columns:
         return None
     parsed = pd.to_datetime(frame[DATE_COLUMN], errors="coerce", format="ISO8601")
-    return parsed.dropna()
+    return parsed.reset_index(drop=True)
