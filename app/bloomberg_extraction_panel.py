@@ -94,21 +94,22 @@ def render() -> None:
     excluded = _render_gap_review(merged)
     download_merged = merged[~merged["Date"].isin(excluded)] if excluded else merged
 
-    st.download_button(
+    st.write("Download the following files:")
+    bloomberg_col, factor_col, workbook_col, _spacer = st.columns([1, 1, 1, 3])
+    bloomberg_col.download_button(
         "Bloomberg merged (.csv)",
         data=bloomberg_csv.with_display_dates(download_merged).to_csv(index=False).encode(),
         file_name="bloomberg_merged.csv",
         mime="text/csv",
     )
     if ff is not None:
-        factor_csv, combined = st.columns(2)
-        factor_csv.download_button(
+        factor_col.download_button(
             "Fama-French only (.csv)",
             data=bloomberg_csv.with_display_dates(ff).to_csv(index=False).encode(),
             file_name="fama_french_factors.csv",
             mime="text/csv",
         )
-        combined.download_button(
+        workbook_col.download_button(
             "Workbook (.xlsx)",
             data=workbook.build(
                 bloomberg_csv.with_display_dates(download_merged),
@@ -175,7 +176,7 @@ def _render_gap_review(merged: pd.DataFrame) -> set[pd.Timestamp]:
     key = f"gap_decisions_{len(merged)}_{hash(tuple(merged.columns))}"
     decisions: dict[str, str] = st.session_state.setdefault(key, {})
 
-    exclude_all, include_all = st.columns(2)
+    exclude_all, include_all, _spacer = st.columns([1, 1, 4])
     if exclude_all.button("Exclude all listed rows", key=f"{key}_exclude_all"):
         for date in gaps["Date"]:
             decisions[date.date().isoformat()] = "exclude"
