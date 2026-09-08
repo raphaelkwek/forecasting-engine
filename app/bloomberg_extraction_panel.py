@@ -20,15 +20,22 @@ from forecasting_engine.ingest import fama_french
 from forecasting_engine.ingest.fama_french import FactorFetchError, FactorFile
 from forecasting_engine.ingest.upload import (
     MAX_UPLOAD_BYTES,
+    AcceptedUpload,
     UploadError,
+    accept_upload,
     check_extension,
     check_size,
 )
+from forecasting_engine.store.uploads import record_upload
 
 #: The merged frame and its report, for the Home page to read back.
 MERGED_KEY = "extraction_merged"
 REPORT_KEY = "extraction_report"
 FACTORS_KEY = "fama_french"
+
+#: What the merged file is called in the upload log and under data/uploads.
+MERGED_NAME = "bloomberg_merged.csv"
+_LOGGED_KEY = "_logged_bloomberg_merge"
 
 
 def _fmt(date) -> str:
@@ -83,6 +90,7 @@ def render() -> None:
     report = validation.validate(merged)
     st.session_state[MERGED_KEY] = merged
     st.session_state[REPORT_KEY] = report
+    _keep_and_log(merged, file_id="|".join(getattr(f, "file_id", f.name) for f in uploaded))
     _render_report(report, merged)
 
     st.markdown(ui.eyebrow("Fama-French Factors"), unsafe_allow_html=True)
@@ -118,6 +126,26 @@ def render() -> None:
             file_name="Bloomberg + Fama-French.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+
+def _keep_and_log(merged: pd.DataFrame, *, file_id: str) -> AcceptedUpload:
+    """Store the merged file under its content hash and log it to DuckDB.
+
+    The merge is an upload like any other: the bytes go under data/uploads and
+    a row goes in the uploads table, once per set of files rather than once
+    per Streamlit rerun. Dates are written ISO so the stored copy reads back
+    unambiguously.
+    """
+    # A fixed line ending, so the same merge hashes the same on every machine.
+    csv_bytes = merged.to_csv(index=False, date_format="%Y-%m-%d", lineterminator="\n").encode(
+        "utf-8"
+    )
+    accepted = accept_upload(MERGED_NAME, csv_bytes)
+    if st.session_state.get(_LOGGED_KEY) != file_id:
+        record_upload(accepted)
+        st.session_state[_LOGGED_KEY] = file_id
+    st.caption(f"Stored as {MERGED_NAME}, content hash {accepted.source.short_hash}.")
+    return accepted
 
 
 def _factor_file() -> FactorFile | None:

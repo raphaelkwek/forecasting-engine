@@ -10,6 +10,7 @@ from streamlit.testing.v1 import AppTest
 from forecasting_engine.ingest.fama_french import FactorFile
 from forecasting_engine.ingest.provenance import SourceFile
 from forecasting_engine.ingest.upload import MAX_UPLOAD_BYTES
+from forecasting_engine.store.uploads import recent_uploads
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGE = REPO_ROOT / "app" / "pages" / "1_Data.py"
@@ -217,3 +218,23 @@ def test_excluding_all_gap_rows_does_not_touch_the_report_above(page):
     # Exclusion only affects the downloads, never the merged data or its report.
     assert len(result.session_state["extraction_merged"]) == 3
     assert "Rows with missing values" in texts(result.markdown)
+
+
+# --- the merge is kept and logged like any other upload -----------------------
+
+
+def test_the_merge_is_logged_to_duckdb_once(page, tmp_path):
+    result = upload(page, [("spx.csv", SPX, "text/csv"), ("vix.csv", VIX, "text/csv")])
+    result.run()  # a rerun must not log it again
+
+    (row,) = recent_uploads(db_path=tmp_path / "data" / "forecasting.duckdb")
+    assert row.filename == "bloomberg_merged.csv"
+    assert row.row_count == 2
+    assert "content hash" in " ".join(c.value for c in result.caption)
+
+
+def test_the_merged_bytes_are_stored_under_their_hash(page, tmp_path):
+    upload(page, [("spx.csv", SPX, "text/csv")])
+
+    (stored,) = (tmp_path / "data" / "uploads").glob("*.csv")
+    assert stored.read_bytes().startswith(b"Date,SPX_Index_PX_LAST\n2020-01-02,")
