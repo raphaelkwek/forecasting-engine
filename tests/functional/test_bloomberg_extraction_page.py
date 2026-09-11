@@ -200,22 +200,22 @@ def test_a_gap_row_triggers_the_review_section(page):
 
     assert "Rows with missing values" in texts(result.markdown)
     labels = [b.label for b in result.button]
-    assert "Exclude all listed rows" in labels
+    assert "Clean all listed rows" in labels
     assert "Include all listed rows" in labels
 
 
-def test_excluding_all_gap_rows_does_not_touch_the_report_above(page):
+def test_cleaning_all_gap_rows_does_not_touch_the_report_above_or_drop_rows(page):
     lf98truu, legatruu = gappy_csv()
     result = upload(
         page, [("lf98truu.csv", lf98truu, "text/csv"), ("legatruu.csv", legatruu, "text/csv")]
     )
     assert len(result.session_state["extraction_merged"]) == 3
 
-    exclude_button = next(b for b in result.button if b.label == "Exclude all listed rows")
-    result = exclude_button.click().run()
+    clean_button = next(b for b in result.button if b.label == "Clean all listed rows")
+    result = clean_button.click().run()
 
     assert not result.exception
-    # Exclusion only affects the downloads, never the merged data or its report.
+    # Cleaning only affects the downloads, never the merged data or its report.
     assert len(result.session_state["extraction_merged"]) == 3
     assert "Rows with missing values" in texts(result.markdown)
 

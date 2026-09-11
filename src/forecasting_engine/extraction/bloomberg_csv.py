@@ -181,6 +181,30 @@ def missing_row_report(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def forward_fill(
+    frame: pd.DataFrame, clean_dates: set[pd.Timestamp], max_gap: int
+) -> pd.DataFrame:
+    """Carry the last available value into rows marked to clean.
+
+    Only ``clean_dates`` are touched — every other row is returned unchanged,
+    so a row is never dropped, only filled. A run of missing values longer
+    than ``max_gap`` is left blank past that point: ``ffill(limit=...)``
+    already stops there, which is exactly "forward-fill up to a maximum gap
+    length, leave longer gaps missing".
+    """
+    if not clean_dates:
+        return frame
+
+    out = frame.copy()
+    selected = frame[DATE_COLUMN].isin(clean_dates)
+    for col in frame.columns:
+        if col == DATE_COLUMN:
+            continue
+        candidate = frame[col].ffill(limit=max_gap)
+        out[col] = frame[col].where(~selected, candidate)
+    return out
+
+
 @lru_cache(maxsize=32)
 def _holidays_between(start: pd.Timestamp, end: pd.Timestamp) -> set[pd.Timestamp]:
     """Weekdays in ``[start, end]`` that ``_HOLIDAY_CALENDAR`` was closed for."""

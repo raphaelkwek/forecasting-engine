@@ -99,8 +99,7 @@ def render() -> None:
         factors = _download_factors()
     ff = _render_factors(factors, merged)
 
-    excluded = _render_gap_review(merged)
-    download_merged = merged[~merged["Date"].isin(excluded)] if excluded else merged
+    download_merged = _render_gap_review(merged)
 
     st.write("Download the following files:")
     bloomberg_col, factor_col, workbook_col, _spacer = st.columns([1, 1, 1, 3])
@@ -181,33 +180,47 @@ def _render_factors(factors: FactorFile | None, merged: pd.DataFrame) -> pd.Data
     return ff
 
 
-def _render_gap_review(merged: pd.DataFrame) -> set[pd.Timestamp]:
-    """Show every row with a missing value and why, and let the user drop some.
+def _render_gap_review(merged: pd.DataFrame) -> pd.DataFrame:
+    """Show every row with a missing value and why, and let the user clean some.
 
-    Everything starts included — excluding a row is the deliberate act, the
-    same rule the outlier review on the old pipeline used, because a gap is
-    usually a real calendar difference rather than a fault. Returns the
-    dates ticked off, for the caller to leave out of the downloads.
+    Everything starts as-is — cleaning a row is the deliberate act, the same
+    rule the outlier review on the old pipeline used, because a gap is
+    usually a real calendar difference rather than a fault. No row is ever
+    dropped: a row marked to clean has its missing signals forward-filled
+    from the last available value instead. Returns the frame to download.
     """
     gaps = bloomberg_csv.missing_row_report(merged)
     if gaps.empty:
-        return set()
+        return merged
 
     st.markdown(ui.eyebrow("Rows with missing values"), unsafe_allow_html=True)
     st.caption(
         "Each row below is missing at least one signal, with a likely reason — "
         "most are calendar gaps (a security's own market was closed), not "
-        "errors. Nothing is removed from the report above. Untick a row, or "
-        "use the buttons below, to leave it out of the downloads only."
+        "errors. Nothing is removed from the report above, and no row is "
+        "dropped from the downloads. Untick a row, or use the buttons below, "
+        "to forward-fill it from the last available value in the downloads "
+        "only, up to the gap length below."
     )
 
     key = f"gap_decisions_{len(merged)}_{hash(tuple(merged.columns))}"
     decisions: dict[str, str] = st.session_state.setdefault(key, {})
 
-    exclude_all, include_all, _spacer = st.columns([1, 1, 4])
-    if exclude_all.button("Exclude all listed rows", key=f"{key}_exclude_all"):
+    clean_all, include_all, gap_col, _spacer = st.columns(
+        [1, 1, 1.2, 2.8], vertical_alignment="bottom"
+    )
+    max_gap = gap_col.number_input(
+        "Max fill-gap (days)",
+        min_value=1,
+        max_value=30,
+        value=1,
+        step=1,
+        key=f"{key}_max_gap",
+        help="A gap longer than this is left blank instead of forward-filled.",
+    )
+    if clean_all.button("Clean all listed rows", key=f"{key}_clean_all"):
         for date in gaps["Date"]:
-            decisions[date.date().isoformat()] = "exclude"
+            decisions[date.date().isoformat()] = "clean"
         st.rerun()
     if include_all.button("Include all listed rows", key=f"{key}_include_all"):
         decisions.clear()
@@ -233,7 +246,7 @@ def _render_gap_review(merged: pd.DataFrame) -> set[pd.Timestamp]:
         disabled=["Date", "Missing columns", "Likely reason"],
         column_config={
             "Include": st.column_config.CheckboxColumn(
-                "Include", help="Untick to leave this row out of the downloads", width="small"
+                "Include", help="Untick to forward-fill this row in the downloads", width="small"
             ),
             "Date": st.column_config.TextColumn(width="small"),
             "Missing columns": st.column_config.TextColumn(width="large"),
@@ -245,14 +258,25 @@ def _render_gap_review(merged: pd.DataFrame) -> set[pd.Timestamp]:
     changed = False
     for (_, gap_row), edited_row in zip(gap_rows, edited, strict=True):
         iso = gap_row["Date"].date().isoformat()
-        wanted = "include" if edited_row["Include"] else "exclude"
+        wanted = "include" if edited_row["Include"] else "clean"
         if decisions.get(iso) != wanted:
             decisions[iso] = wanted
             changed = True
     if changed:
         st.rerun()
 
-    return {pd.Timestamp(iso) for iso, choice in decisions.items() if choice == "exclude"}
+    clean_dates = {pd.Timestamp(iso) for iso, choice in decisions.items() if choice == "clean"}
+    cleaned = bloomberg_csv.forward_fill(merged, clean_dates, int(max_gap))
+
+    if clean_dates:
+        still_missing = bloomberg_csv.missing_row_report(cleaned)
+        stuck = still_missing[still_missing["Date"].isin(clean_dates)]
+        if not stuck.empty:
+            st.caption(
+                f"{len(stuck)} marked row(s) still have a gap longer than "
+                f"{int(max_gap)} day(s) and remain missing in the downloads."
+            )
+    return cleaned
 
 
 def render_summary() -> None:
