@@ -153,7 +153,11 @@ def render() -> None:
     if st.button("Use Updated Data"):
         st.session_state[COMMITTED_KEY] = download_merged
         st.session_state[COMMITTED_REPORT_KEY] = validation.validate(download_merged)
-        st.success("Home and the Signals page now reflect this cleaned dataset.")
+        # The summary above already rendered this run using the pre-commit
+        # state (it runs earlier in script order than this button), so a
+        # rerun is what makes it — and Home, and Signals — show the new
+        # numbers immediately instead of one interaction later.
+        st.rerun()
     elif COMMITTED_KEY in st.session_state:
         st.caption("A dataset is committed for Home and the Signals page.")
     else:
