@@ -127,7 +127,12 @@ def render() -> None:
         st.info("Upload Bloomberg CSV exports above to get started.")
         return
 
-    _render_report(report, merged)
+    # Once a cleaned dataset has been committed, the summary above (coverage,
+    # Missing %, Flagged) reflects it too — same commit Home and the Signals
+    # page read — rather than staying frozen on the pre-clean numbers.
+    committed_report = st.session_state.get(COMMITTED_REPORT_KEY, report)
+    committed_merged = st.session_state.get(COMMITTED_KEY, merged)
+    _render_report(committed_report, committed_merged)
 
     st.markdown(ui.eyebrow("Fama-French Factors"), unsafe_allow_html=True)
     factors = _factor_file()
