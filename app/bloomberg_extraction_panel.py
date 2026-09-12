@@ -28,19 +28,26 @@ from forecasting_engine.ingest.upload import (
 )
 from forecasting_engine.store.uploads import record_upload
 
-#: The merged frame and its report, for the Home page to read back.
+#: The raw merged frame and its report — the Data page's own working copy,
+#: refreshed on every new upload regardless of any commit below.
 MERGED_KEY = "extraction_merged"
 REPORT_KEY = "extraction_report"
 FACTORS_KEY = "fama_french"
 
-#: The cleaned frame the Signals page screens. Only updated when the user
-#: clicks "Use New Data" — not on every gap-review edit — so screening
-#: results stay stable while decisions are still being made.
-SCREENING_KEY = "extraction_for_screening"
+#: The cleaned frame (and its own report) that Home and the Signals page
+#: read. Only updated when the user clicks "Use Updated Data" — not on every
+#: gap-review edit — so both pages stay stable while decisions are still
+#: being made.
+COMMITTED_KEY = "extraction_committed"
+COMMITTED_REPORT_KEY = "extraction_committed_report"
 
 #: What the merged file is called in the upload log and under data/uploads.
 MERGED_NAME = "bloomberg_merged.csv"
 _LOGGED_KEY = "_logged_bloomberg_merge"
+
+#: Bumped by "Clear Data" so the file_uploader gets a fresh widget key and
+#: drops whatever files it was showing, instead of re-displaying them.
+_UPLOADER_VERSION_KEY = "_bloomberg_uploader_version"
 
 
 def _fmt(date) -> str:
@@ -51,18 +58,28 @@ def _fmt(date) -> str:
 def render() -> None:
     ui.inject()
     st.header("Bloomberg data extraction")
+
+    if st.button("Clear Data", help="Remove the current upload so you can start over."):
+        for key in (MERGED_KEY, REPORT_KEY, COMMITTED_KEY, COMMITTED_REPORT_KEY, _LOGGED_KEY):
+            st.session_state.pop(key, None)
+        for stale in [k for k in st.session_state if k.startswith("gap_decisions_")]:
+            st.session_state.pop(stale, None)
+        st.session_state[_UPLOADER_VERSION_KEY] = (
+            st.session_state.get(_UPLOADER_VERSION_KEY, 0) + 1
+        )
+        st.rerun()
+
     st.caption(
         f"Upload Bloomberg CSV exports, up to {MAX_UPLOAD_BYTES // 1_000_000} MB each. "
         "All selected files are merged on Date with an outer join. Gaps and outliers "
         "are reported for review without blocking the merge."
     )
 
-    # Reserves the Signals-commit UI's position at the top of the page; it's
-    # filled in near the bottom, once the cleaned frame exists to commit.
-    signals_slot = st.container()
-
     uploaded = st.file_uploader(
-        "Bloomberg CSV exports", type=None, accept_multiple_files=True
+        "Bloomberg CSV exports",
+        type=None,
+        accept_multiple_files=True,
+        key=f"bloomberg_uploader_{st.session_state.get(_UPLOADER_VERSION_KEY, 0)}",
     )
 
     if uploaded:
@@ -120,21 +137,22 @@ def render() -> None:
 
     download_merged = _render_gap_review(merged)
 
-    with signals_slot:
-        st.markdown(ui.eyebrow("Signals page"), unsafe_allow_html=True)
-        st.caption(
-            "The Signals page screens whichever dataset was last committed here — "
-            "it does not update on every gap-review edit. Make your include/clean "
-            "choices below, then click here to push them through."
-        )
-        if st.button("Use New Data"):
-            st.session_state[SCREENING_KEY] = download_merged
-            st.success("Signals page updated with the current cleaned data.")
-        elif SCREENING_KEY in st.session_state:
-            st.caption("A dataset is committed for the Signals page.")
-        else:
-            st.caption("Nothing committed yet — the Signals page has no data to screen.")
-        st.divider()
+    st.divider()
+    st.markdown(ui.eyebrow("Home & Signals"), unsafe_allow_html=True)
+    st.caption(
+        "Home's data quality report and the Signals page both read whichever "
+        "dataset was last committed here — neither updates on every gap-review "
+        "edit. Make your include/clean choices above, then click below to push "
+        "them through."
+    )
+    if st.button("Use Updated Data"):
+        st.session_state[COMMITTED_KEY] = download_merged
+        st.session_state[COMMITTED_REPORT_KEY] = validation.validate(download_merged)
+        st.success("Home and the Signals page now reflect this cleaned dataset.")
+    elif COMMITTED_KEY in st.session_state:
+        st.caption("A dataset is committed for Home and the Signals page.")
+    else:
+        st.caption("Nothing committed yet — Home and the Signals page have no data yet.")
 
     st.write("Download the following files:")
     bloomberg_col, factor_col, workbook_col, _spacer = st.columns([1, 1, 1, 3])
@@ -315,12 +333,17 @@ def _render_gap_review(merged: pd.DataFrame) -> pd.DataFrame:
 
 
 def render_summary() -> None:
-    """The Home page's data quality report, read back from session state."""
+    """The Home page's data quality report, read back from session state.
+
+    Reflects whichever dataset was last committed on the Data page via
+    "Use Updated Data" — the same commit the Signals page reads — not
+    every upload or gap-review edit.
+    """
     ui.inject()
     st.subheader("Data quality report")
 
-    report: ValidationReport | None = st.session_state.get(REPORT_KEY)
-    merged = st.session_state.get(MERGED_KEY)
+    report: ValidationReport | None = st.session_state.get(COMMITTED_REPORT_KEY)
+    merged = st.session_state.get(COMMITTED_KEY)
     if report is None or merged is None:
         _render_awaiting_upload()
         return
@@ -332,8 +355,11 @@ def render_summary() -> None:
 
 
 def _render_awaiting_upload() -> None:
-    st.info("No data ingested yet. Upload Bloomberg CSV exports on the **Data** page.")
-    st.caption("This report fills in once files are merged and validated.")
+    st.info(
+        "No data committed yet. Upload Bloomberg CSV exports on the **Data** page and "
+        "click **Use Updated Data**."
+    )
+    st.caption("This report fills in once a cleaned dataset is committed.")
     badge = ui.lozenge("Pending", "neutral")
     rows = "".join(
         ui.status_row(title, badge)

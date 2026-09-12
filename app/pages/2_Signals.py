@@ -20,9 +20,9 @@ st.caption(
     "Signals below the inclusion threshold stay visible here, excluded from modelling."
 )
 
-merged = st.session_state.get(bloomberg_extraction_panel.SCREENING_KEY)
+merged = st.session_state.get(bloomberg_extraction_panel.COMMITTED_KEY)
 if merged is None:
-    st.info("No data committed yet — click \"Use New Data\" on the Data page first.")
+    st.info("No data committed yet — click \"Use Updated Data\" on the Data page first.")
 else:
     numeric_cols = [
         c for c in merged.columns if c != DATE_COLUMN and merged[c].dtype.kind in "fi"
