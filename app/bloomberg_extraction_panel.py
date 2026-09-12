@@ -57,6 +57,10 @@ def render() -> None:
         "are reported for review without blocking the merge."
     )
 
+    # Reserves the Signals-commit UI's position at the top of the page; it's
+    # filled in near the bottom, once the cleaned frame exists to commit.
+    signals_slot = st.container()
+
     uploaded = st.file_uploader(
         "Bloomberg CSV exports", type=None, accept_multiple_files=True
     )
@@ -116,20 +120,21 @@ def render() -> None:
 
     download_merged = _render_gap_review(merged)
 
-    st.divider()
-    st.markdown(ui.eyebrow("Signals page"), unsafe_allow_html=True)
-    st.caption(
-        "The Signals page screens whichever dataset was last committed here — "
-        "it does not update on every gap-review edit. Make your include/clean "
-        "choices above, then click below to push them through."
-    )
-    if st.button("Use New Data"):
-        st.session_state[SCREENING_KEY] = download_merged
-        st.success("Signals page updated with the current cleaned data.")
-    elif SCREENING_KEY in st.session_state:
-        st.caption("A dataset is committed for the Signals page.")
-    else:
-        st.caption("Nothing committed yet — the Signals page has no data to screen.")
+    with signals_slot:
+        st.markdown(ui.eyebrow("Signals page"), unsafe_allow_html=True)
+        st.caption(
+            "The Signals page screens whichever dataset was last committed here — "
+            "it does not update on every gap-review edit. Make your include/clean "
+            "choices below, then click here to push them through."
+        )
+        if st.button("Use New Data"):
+            st.session_state[SCREENING_KEY] = download_merged
+            st.success("Signals page updated with the current cleaned data.")
+        elif SCREENING_KEY in st.session_state:
+            st.caption("A dataset is committed for the Signals page.")
+        else:
+            st.caption("Nothing committed yet — the Signals page has no data to screen.")
+        st.divider()
 
     st.write("Download the following files:")
     bloomberg_col, factor_col, workbook_col, _spacer = st.columns([1, 1, 1, 3])
