@@ -1,7 +1,7 @@
 """Signals page: per-signal IC screening and the inclusion registry.
 
-Reads the dataset committed via "Use New Data" on the Data page; no maths
-lives here — screening logic is in forecasting_engine.features.screening.
+Reads the dataset committed via "Use Updated Data" on the Data page; no
+maths lives here — screening logic is in forecasting_engine.features.screening.
 """
 
 from __future__ import annotations
