@@ -83,23 +83,26 @@ def render() -> None:
     )
 
     if uploaded:
-        exports, errors = [], []
-        for file in uploaded:
-            try:
-                data = file.getvalue()
-                check_extension(file.name)
-                check_size(len(data), filename=file.name)
-                exports.append(bloomberg_csv.read_export(file.name, data))
-            except (UploadError, bloomberg_csv.BloombergCsvError) as exc:
-                errors.append(str(exc))
+        with st.spinner("Reading and merging the uploaded files…"):
+            exports, errors = [], []
+            for file in uploaded:
+                try:
+                    data = file.getvalue()
+                    check_extension(file.name)
+                    check_size(len(data), filename=file.name)
+                    exports.append(bloomberg_csv.read_export(file.name, data))
+                except (UploadError, bloomberg_csv.BloombergCsvError) as exc:
+                    errors.append(str(exc))
+
+            if exports:
+                merged = bloomberg_csv.merge(exports)
+                merged, dropped = bloomberg_csv.drop_empty_columns(merged)
+                report = validation.validate(merged)
 
         for message in errors:
             st.error(message)
 
         if exports:
-            merged = bloomberg_csv.merge(exports)
-            merged, dropped = bloomberg_csv.drop_empty_columns(merged)
-
             st.success(
                 f"Merged {len(exports)} file(s) into {len(merged):,} rows, "
                 f"{len(merged.columns) - 1} data columns."
@@ -111,7 +114,6 @@ def render() -> None:
                 )
             st.dataframe(bloomberg_csv.with_display_dates(merged.head(10)), width="stretch")
 
-            report = validation.validate(merged)
             st.session_state[MERGED_KEY] = merged
             st.session_state[REPORT_KEY] = report
             _keep_and_log(
@@ -127,17 +129,18 @@ def render() -> None:
         st.info("Upload Bloomberg CSV exports above to get started.")
         return
 
-    # Once a cleaned dataset has been committed, the summary above (coverage,
-    # Missing %, Flagged) reflects it too — same commit Home and the Signals
-    # page read — rather than staying frozen on the pre-clean numbers.
-    committed_report = st.session_state.get(COMMITTED_REPORT_KEY, report)
-    committed_merged = st.session_state.get(COMMITTED_KEY, merged)
-    _render_report(committed_report, committed_merged)
+    # Reserved here so the summary stays in its usual position, but filled in
+    # further down — after the "Use Updated Data" button has had a chance to
+    # run in this same script pass. That lets a same-click commit show up
+    # without an st.rerun(), which would tear down and repaint the whole page
+    # (the "flash" a full rerun causes here).
+    summary_slot = st.container()
 
     st.markdown(ui.eyebrow("Fama-French Factors"), unsafe_allow_html=True)
     factors = _factor_file()
     if st.button("Download the latest factors"):
-        factors = _download_factors()
+        with st.spinner("Downloading the latest Fama-French factors…"):
+            factors = _download_factors()
     ff = _render_factors(factors, merged)
 
     download_merged = _render_gap_review(merged)
@@ -151,17 +154,21 @@ def render() -> None:
         "them through."
     )
     if st.button("Use Updated Data"):
-        st.session_state[COMMITTED_KEY] = download_merged
-        st.session_state[COMMITTED_REPORT_KEY] = validation.validate(download_merged)
-        # The summary above already rendered this run using the pre-commit
-        # state (it runs earlier in script order than this button), so a
-        # rerun is what makes it — and Home, and Signals — show the new
-        # numbers immediately instead of one interaction later.
-        st.rerun()
+        with st.spinner("Validating the cleaned dataset…"):
+            st.session_state[COMMITTED_KEY] = download_merged
+            st.session_state[COMMITTED_REPORT_KEY] = validation.validate(download_merged)
+        st.success("Home and the Signals page now reflect this cleaned dataset.")
     elif COMMITTED_KEY in st.session_state:
         st.caption("A dataset is committed for Home and the Signals page.")
     else:
         st.caption("Nothing committed yet — Home and the Signals page have no data yet.")
+
+    # Filled in now (not where reserved above) so this reflects a commit made
+    # by the button just above it, in this same run — no rerun needed.
+    with summary_slot:
+        committed_report = st.session_state.get(COMMITTED_REPORT_KEY, report)
+        committed_merged = st.session_state.get(COMMITTED_KEY, merged)
+        _render_report(committed_report, committed_merged)
 
     st.write("Download the following files:")
     bloomberg_col, factor_col, workbook_col, _spacer = st.columns([1, 1, 1, 3])
