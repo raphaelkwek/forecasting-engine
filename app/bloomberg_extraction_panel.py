@@ -33,6 +33,11 @@ MERGED_KEY = "extraction_merged"
 REPORT_KEY = "extraction_report"
 FACTORS_KEY = "fama_french"
 
+#: The cleaned frame the Signals page screens. Only updated when the user
+#: clicks "Use New Data" — not on every gap-review edit — so screening
+#: results stay stable while decisions are still being made.
+SCREENING_KEY = "extraction_for_screening"
+
 #: What the merged file is called in the upload log and under data/uploads.
 MERGED_NAME = "bloomberg_merged.csv"
 _LOGGED_KEY = "_logged_bloomberg_merge"
@@ -55,42 +60,52 @@ def render() -> None:
     uploaded = st.file_uploader(
         "Bloomberg CSV exports", type=None, accept_multiple_files=True
     )
-    if not uploaded:
+
+    if uploaded:
+        exports, errors = [], []
+        for file in uploaded:
+            try:
+                data = file.getvalue()
+                check_extension(file.name)
+                check_size(len(data), filename=file.name)
+                exports.append(bloomberg_csv.read_export(file.name, data))
+            except (UploadError, bloomberg_csv.BloombergCsvError) as exc:
+                errors.append(str(exc))
+
+        for message in errors:
+            st.error(message)
+
+        if exports:
+            merged = bloomberg_csv.merge(exports)
+            merged, dropped = bloomberg_csv.drop_empty_columns(merged)
+
+            st.success(
+                f"Merged {len(exports)} file(s) into {len(merged):,} rows, "
+                f"{len(merged.columns) - 1} data columns."
+            )
+            if dropped:
+                st.caption(
+                    f"Dropped {len(dropped)} column(s) with no data at all (the security "
+                    f"has nothing for that field): {', '.join(dropped)}."
+                )
+            st.dataframe(bloomberg_csv.with_display_dates(merged.head(10)), width="stretch")
+
+            report = validation.validate(merged)
+            st.session_state[MERGED_KEY] = merged
+            st.session_state[REPORT_KEY] = report
+            _keep_and_log(
+                merged, file_id="|".join(getattr(f, "file_id", f.name) for f in uploaded)
+            )
+
+    # Falling back to session state (rather than returning when nothing was
+    # just uploaded) is what keeps this page showing the last merge instead
+    # of going blank when the user navigates here from another tab.
+    merged = st.session_state.get(MERGED_KEY)
+    report = st.session_state.get(REPORT_KEY)
+    if merged is None or report is None:
+        st.info("Upload Bloomberg CSV exports above to get started.")
         return
 
-    exports, errors = [], []
-    for file in uploaded:
-        try:
-            data = file.getvalue()
-            check_extension(file.name)
-            check_size(len(data), filename=file.name)
-            exports.append(bloomberg_csv.read_export(file.name, data))
-        except (UploadError, bloomberg_csv.BloombergCsvError) as exc:
-            errors.append(str(exc))
-
-    for message in errors:
-        st.error(message)
-    if not exports:
-        return
-
-    merged = bloomberg_csv.merge(exports)
-    merged, dropped = bloomberg_csv.drop_empty_columns(merged)
-
-    st.success(
-        f"Merged {len(exports)} file(s) into {len(merged):,} rows, "
-        f"{len(merged.columns) - 1} data columns."
-    )
-    if dropped:
-        st.caption(
-            f"Dropped {len(dropped)} column(s) with no data at all (the security "
-            f"has nothing for that field): {', '.join(dropped)}."
-        )
-    st.dataframe(bloomberg_csv.with_display_dates(merged.head(10)), width="stretch")
-
-    report = validation.validate(merged)
-    st.session_state[MERGED_KEY] = merged
-    st.session_state[REPORT_KEY] = report
-    _keep_and_log(merged, file_id="|".join(getattr(f, "file_id", f.name) for f in uploaded))
     _render_report(report, merged)
 
     st.markdown(ui.eyebrow("Fama-French Factors"), unsafe_allow_html=True)
@@ -100,6 +115,21 @@ def render() -> None:
     ff = _render_factors(factors, merged)
 
     download_merged = _render_gap_review(merged)
+
+    st.divider()
+    st.markdown(ui.eyebrow("Signals page"), unsafe_allow_html=True)
+    st.caption(
+        "The Signals page screens whichever dataset was last committed here — "
+        "it does not update on every gap-review edit. Make your include/clean "
+        "choices above, then click below to push them through."
+    )
+    if st.button("Use New Data"):
+        st.session_state[SCREENING_KEY] = download_merged
+        st.success("Signals page updated with the current cleaned data.")
+    elif SCREENING_KEY in st.session_state:
+        st.caption("A dataset is committed for the Signals page.")
+    else:
+        st.caption("Nothing committed yet — the Signals page has no data to screen.")
 
     st.write("Download the following files:")
     bloomberg_col, factor_col, workbook_col, _spacer = st.columns([1, 1, 1, 3])

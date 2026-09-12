@@ -1,6 +1,6 @@
 """Signals page: per-signal IC screening and the inclusion registry.
 
-Reads the already-merged frame from the Data page's session state; no maths
+Reads the dataset committed via "Use New Data" on the Data page; no maths
 lives here — screening logic is in forecasting_engine.features.screening.
 """
 
@@ -20,9 +20,9 @@ st.caption(
     "Signals below the inclusion threshold stay visible here, excluded from modelling."
 )
 
-merged = st.session_state.get(bloomberg_extraction_panel.MERGED_KEY)
+merged = st.session_state.get(bloomberg_extraction_panel.SCREENING_KEY)
 if merged is None:
-    st.info("Upload data on the Data page first.")
+    st.info("No data committed yet — click \"Use New Data\" on the Data page first.")
 else:
     numeric_cols = [
         c for c in merged.columns if c != DATE_COLUMN and merged[c].dtype.kind in "fi"
