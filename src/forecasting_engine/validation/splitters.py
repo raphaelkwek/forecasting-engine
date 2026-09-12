@@ -26,8 +26,15 @@ class PurgedWalkForward:
         index = panel.frame.index
         start = 0
         while start + self.train + self.embargo + self.test <= len(index):
-            train_idx = index[start : start + self.train]
-            test_start = start + self.train + self.embargo
+            natural_train_end = start + self.train
+            test_start = natural_train_end + self.embargo
+            # A training row's label looks `panel.horizon` days past its own
+            # date. If that reaches test_start or beyond, the label needs a
+            # price the model isn't supposed to see yet — purge those rows
+            # regardless of how large `embargo` is, rather than trusting the
+            # caller to have picked embargo >= horizon.
+            purge_boundary = min(natural_train_end, test_start - panel.horizon)
+            train_idx = index[start:purge_boundary]
             test_idx = index[test_start : test_start + self.test]
             yield train_idx, test_idx
             start += self.test

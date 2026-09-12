@@ -22,10 +22,16 @@ class FeaturePanel:
     signals: tuple[str, ...]
     targets: tuple[str, ...]
     lag_days: int
+    horizon: int = 1
+    """Trading days a target label looks forward from its own date. Lets a
+    splitter purge training rows whose label window would reach past a
+    rebalance date, regardless of how large an embargo the caller chose."""
 
     def __post_init__(self) -> None:
         if self.lag_days < 1:
             raise ValueError(f"lag_days must be >= 1, got {self.lag_days}")
+        if self.horizon < 1:
+            raise ValueError(f"horizon must be >= 1, got {self.horizon}")
         overlap = set(self.signals) & set(self.targets)
         if overlap:
             raise ValueError(f"target column(s) {overlap} also listed as signals")
@@ -54,4 +60,5 @@ def align_and_lag(
         signals=tuple(signal_cols),
         targets=(target_col,),
         lag_days=lag_days,
+        horizon=horizon,
     )
