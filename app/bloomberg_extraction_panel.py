@@ -57,9 +57,13 @@ def _fmt(date) -> str:
 
 def render() -> None:
     ui.inject()
-    st.header("Bloomberg data extraction")
+    st.header("Bloomberg data extraction", anchor=False, divider="grey")
 
-    if st.button("Clear Data", help="Remove the current upload so you can start over."):
+    if st.button(
+        "Clear Data",
+        icon=":material/delete_sweep:",
+        help="Remove the current upload so you can start over.",
+    ):
         for key in (MERGED_KEY, REPORT_KEY, COMMITTED_KEY, COMMITTED_REPORT_KEY, _LOGGED_KEY):
             st.session_state.pop(key, None)
         for stale in [k for k in st.session_state if k.startswith("gap_decisions_")]:
@@ -100,12 +104,13 @@ def render() -> None:
                 report = validation.validate(merged)
 
         for message in errors:
-            st.error(message)
+            st.error(message, icon=":material/error:")
 
         if exports:
             st.success(
                 f"Merged {len(exports)} file(s) into {len(merged):,} rows, "
-                f"{len(merged.columns) - 1} data columns."
+                f"{len(merged.columns) - 1} data columns.",
+                icon=":material/check_circle:",
             )
             if dropped:
                 st.caption(
@@ -126,7 +131,7 @@ def render() -> None:
     merged = st.session_state.get(MERGED_KEY)
     report = st.session_state.get(REPORT_KEY)
     if merged is None or report is None:
-        st.info("Upload Bloomberg CSV exports above to get started.")
+        st.info("Upload Bloomberg CSV exports above to get started.", icon=":material/upload_file:")
         return
 
     # Reserved here so the summary stays in its usual position, but filled in
@@ -138,7 +143,7 @@ def render() -> None:
 
     st.markdown(ui.eyebrow("Fama-French Factors"), unsafe_allow_html=True)
     factors = _factor_file()
-    if st.button("Download the latest factors"):
+    if st.button("Download the latest factors", icon=":material/download:"):
         with st.spinner("Downloading the latest Fama-French factors…"):
             factors = _download_factors()
     ff = _render_factors(factors, merged)
@@ -153,11 +158,14 @@ def render() -> None:
         "edit. Make your include/clean choices above, then click below to push "
         "them through."
     )
-    if st.button("Use Updated Data"):
+    if st.button("Use Updated Data", icon=":material/publish:"):
         with st.spinner("Validating the cleaned dataset…"):
             st.session_state[COMMITTED_KEY] = download_merged
             st.session_state[COMMITTED_REPORT_KEY] = validation.validate(download_merged)
-        st.success("Home and the Signals page now reflect this cleaned dataset.")
+        st.success(
+            "Home and the Signals page now reflect this cleaned dataset.",
+            icon=":material/check_circle:",
+        )
     elif COMMITTED_KEY in st.session_state:
         st.caption("A dataset is committed for Home and the Signals page.")
     else:
@@ -171,12 +179,13 @@ def render() -> None:
         _render_report(committed_report, committed_merged)
 
     st.write("Download the following files:")
-    bloomberg_col, factor_col, workbook_col, _spacer = st.columns([1, 1, 1, 3])
+    bloomberg_col, factor_col, workbook_col = st.columns(3)
     bloomberg_col.download_button(
         "Bloomberg merged (.csv)",
         data=bloomberg_csv.with_display_dates(download_merged).to_csv(index=False).encode(),
         file_name="bloomberg_merged.csv",
         mime="text/csv",
+        icon=":material/download:",
     )
     if ff is not None:
         factor_col.download_button(
@@ -184,6 +193,7 @@ def render() -> None:
             data=bloomberg_csv.with_display_dates(ff).to_csv(index=False).encode(),
             file_name="fama_french_factors.csv",
             mime="text/csv",
+            icon=":material/download:",
         )
         workbook_col.download_button(
             "Workbook (.xlsx)",
@@ -193,6 +203,7 @@ def render() -> None:
             ),
             file_name="Bloomberg + Fama-French.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/download:",
         )
 
 
@@ -226,13 +237,16 @@ def _download_factors() -> FactorFile | None:
     try:
         st.session_state[FACTORS_KEY] = fama_french.download()
     except FactorFetchError as exc:
-        st.error(f"Could not download the factor file: {exc}")
+        st.error(f"Could not download the factor file: {exc}", icon=":material/error:")
     return st.session_state.get(FACTORS_KEY)
 
 
 def _render_factors(factors: FactorFile | None, merged: pd.DataFrame) -> pd.DataFrame | None:
     if factors is None:
-        st.info("No factor file yet. Download one to preview it and enable factor downloads.")
+        st.info(
+            "No factor file yet. Download one to preview it and enable factor downloads.",
+            icon=":material/insights:",
+        )
         return None
     ff = fama_french.restrict_to(
         factors.frame, merged["Date"].min(), merged["Date"].max()
@@ -356,7 +370,7 @@ def render_summary() -> None:
     every upload or gap-review edit.
     """
     ui.inject()
-    st.subheader("Data quality report")
+    st.subheader("Data quality report", divider="grey")
 
     report: ValidationReport | None = st.session_state.get(COMMITTED_REPORT_KEY)
     merged = st.session_state.get(COMMITTED_KEY)
@@ -373,7 +387,8 @@ def render_summary() -> None:
 def _render_awaiting_upload() -> None:
     st.info(
         "No data committed yet. Upload Bloomberg CSV exports on the **Data** page and "
-        "click **Use Updated Data**."
+        "click **Use Updated Data**.",
+        icon=":material/hourglass_empty:",
     )
     st.caption("This report fills in once a cleaned dataset is committed.")
     badge = ui.lozenge("Pending", "neutral")
@@ -400,7 +415,8 @@ def _render_verdict(report: ValidationReport) -> None:
         st.error(
             f"{len(report.schema_errors)} schema issue"
             f"{'s' if len(report.schema_errors) != 1 else ''} — see the columns "
-            "listed below."
+            "listed below.",
+            icon=":material/error:",
         )
         for message in report.schema_errors:
             st.caption(message)
@@ -411,17 +427,18 @@ def _render_verdict(report: ValidationReport) -> None:
         st.success(
             f"Merged and validated. {flagged} observation"
             f"{'s' if flagged != 1 else ''} flagged below for information — "
-            "none of them stop a run."
+            "none of them stop a run.",
+            icon=":material/check_circle:",
         )
     else:
-        st.success("Merged and validated. Nothing flagged.")
+        st.success("Merged and validated. Nothing flagged.", icon=":material/check_circle:")
 
 
 def _render_coverage(report: ValidationReport, merged: pd.DataFrame) -> None:
     rows, signals, flag_col = st.columns(3)
-    rows.metric("Rows", f"{len(merged):,}")
-    signals.metric("Signals", len(merged.columns) - 1)
-    flag_col.metric("Flagged", _flagged_count(report))
+    rows.metric("Rows", f"{len(merged):,}", icon=":material/table_rows:")
+    signals.metric("Signals", len(merged.columns) - 1, icon=":material/show_chart:")
+    flag_col.metric("Flagged", _flagged_count(report), icon=":material/flag:")
 
     dates = merged["Date"].dropna()
     if not dates.empty:
