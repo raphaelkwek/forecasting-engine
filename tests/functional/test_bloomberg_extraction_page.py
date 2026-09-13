@@ -13,7 +13,7 @@ from forecasting_engine.ingest.upload import MAX_UPLOAD_BYTES
 from forecasting_engine.store.uploads import recent_uploads
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PAGE = REPO_ROOT / "app" / "pages" / "1_Data.py"
+PAGE = REPO_ROOT / "app" / "app_pages" / "1_Data.py"
 APP_DIR = REPO_ROOT / "app"
 
 FAKE_FACTORS = pd.DataFrame({"Date": pd.to_datetime(["2020-01-02"]), "Mkt-RF": [0.1]})
