@@ -98,6 +98,23 @@ def test_a_file_with_no_date_header_is_reported_as_an_error_not_a_crash(page):
     assert "no 'Date,...' header row" in texts(result.error)
 
 
+def test_a_file_that_fails_the_schema_alone_is_reported_and_nothing_merges(page):
+    bad = export("BAD Index", ["1/2/2020,restricted", "1/3/2020,101.0"])
+    result = upload(page, [("bad.csv", bad, "text/csv")])
+
+    assert not result.success
+    assert "PX_LAST" in texts(result.error)
+    assert "Upload Bloomberg CSV exports above to get started" in texts(result.info)
+
+
+def test_a_bad_type_file_among_good_files_is_excluded_while_good_ones_merge(page):
+    bad = export("BAD Index", ["1/2/2020,restricted", "1/3/2020,101.0"])
+    result = upload(page, [("spx.csv", SPX, "text/csv"), ("bad.csv", bad, "text/csv")])
+
+    assert "PX_LAST" in texts(result.error)
+    assert "Merged 1 file(s) into 2 rows, 1 data columns" in texts(result.success)
+
+
 def test_the_coverage_metrics_are_shown_for_a_clean_file(page):
     result = upload(page, [("spx.csv", SPX, "text/csv")])
 

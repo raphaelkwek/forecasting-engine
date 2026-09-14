@@ -1,0 +1,35 @@
+"""Promotion-gate policy for a candidate model, kept separate from the
+statistics that produce the numbers (compute_pbo, rank_ic) per Validation
+Metrics v2 Section 3. Crash recall/precision/F1 never appear here — they are
+a diagnostic with no threshold, so they cannot fail a gate.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+OOS_RANK_IC_GATE: float = 0.02
+"""Tier 1 gate: mean OOS Rank IC must exceed this (strictly) to validate a
+candidate."""
+
+PBO_GATE: float = 0.5
+"""Tier 2 gate — provisional. The sponsor answered "TBC" when asked to
+confirm this number; treated as the working gate until confirmed."""
+
+
+@dataclass(frozen=True)
+class ValidationOutcome:
+    promoted: bool
+    failed_gates: tuple[str, ...]
+
+
+def evaluate_candidate(mean_oos_rank_ic: float, pbo: float) -> ValidationOutcome:
+    """Apply the OOS Rank IC and PBO promotion gates. A NaN input (e.g. a
+    candidate whose IC couldn't be computed) fails its gate rather than
+    passing or raising."""
+    failed = []
+    if not (mean_oos_rank_ic > OOS_RANK_IC_GATE):
+        failed.append("oos_rank_ic")
+    if not (pbo <= PBO_GATE):
+        failed.append("pbo")
+    return ValidationOutcome(promoted=not failed, failed_gates=tuple(failed))

@@ -97,6 +97,27 @@ _CSS = """
   .fe-finding-where { color: var(--fe-muted); font-size: 12.5px; }
   .fe-finding-detail { font-size: 14px; line-height: 1.45; }
 
+  /* A plain table for cells needing an inline lozenge badge — st.dataframe
+     can't render those. */
+  .fe-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .fe-table th, .fe-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--fe-border);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .fe-table th {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--fe-muted);
+  }
+
   .fe-eyebrow {
     font-size: 11px;
     font-weight: 600;
