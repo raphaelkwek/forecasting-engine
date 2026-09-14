@@ -94,9 +94,24 @@ def render() -> None:
                     data = file.getvalue()
                     check_extension(file.name)
                     check_size(len(data), filename=file.name)
-                    exports.append(bloomberg_csv.read_export(file.name, data))
+                    export = bloomberg_csv.read_export(file.name, data)
                 except (UploadError, bloomberg_csv.BloombergCsvError) as exc:
                     errors.append(str(exc))
+                    continue
+
+                # A file whose own data fails the schema (wrong type, an
+                # impossible value) is excluded the same way a file that
+                # fails to parse is — good files still merge, this one does
+                # not ride along with a bad value in it. Sorted by date
+                # first: a single export's own row order isn't guaranteed
+                # ascending (only the final merge() output is), so checking
+                # the raw order here would flag a fine file as broken.
+                sorted_frame = export.frame.sort_values(bloomberg_csv.DATE_COLUMN)
+                file_errors = validation.schema_errors(sorted_frame)
+                if file_errors:
+                    errors.append(f"{file.name}: " + "; ".join(file_errors))
+                    continue
+                exports.append(export)
 
             if exports:
                 merged = bloomberg_csv.merge(exports)

@@ -93,17 +93,25 @@ def build_schema(columns: list[str]) -> pa.DataFrameSchema:
     return pa.DataFrameSchema(schema_columns)
 
 
-def validate(frame: pd.DataFrame) -> ValidationReport:
-    """Run the schema and the plain-pandas report against ``frame``."""
-    schema_errors: list[str] = []
+def schema_errors(frame: pd.DataFrame) -> list[str]:
+    """Pandera's schema check on ``frame`` alone, as plain messages.
+
+    Meant to be called per source file, before merging: a file that fails
+    here should be excluded the same way a file that fails to parse is,
+    rather than let a bad value ride into the merged dataset.
+    """
     try:
         build_schema(list(frame.columns)).validate(frame, lazy=True)
     except pa.errors.SchemaErrors as exc:
-        schema_errors = [
+        return [
             f"{row['column']}: {row['check']} (got {_format_failure(row['failure_case'])})"
             for _, row in exc.failure_cases.iterrows()
         ]
+    return []
 
+
+def validate(frame: pd.DataFrame) -> ValidationReport:
+    """Run the schema and the plain-pandas report against ``frame``."""
     dates = frame[DATE_COLUMN]
     dup_mask = dates.duplicated()
     weekend_mask = dates.dt.dayofweek.isin([5, 6])
@@ -118,7 +126,7 @@ def validate(frame: pd.DataFrame) -> ValidationReport:
             if col != DATE_COLUMN
         },
         big_moves=_big_moves(frame),
-        schema_errors=schema_errors,
+        schema_errors=schema_errors(frame),
     )
 
 

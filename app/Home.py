@@ -12,6 +12,11 @@ pg = st.navigation(
         st.Page("app_pages/0_Home.py", title="Home", icon=":material/home:", default=True),
         st.Page("app_pages/1_Data.py", title="Data", icon=":material/database:"),
         st.Page("app_pages/2_Signals.py", title="Signals", icon=":material/query_stats:"),
+        st.Page(
+            "app_pages/3_Model_Metrics.py", 
+            title="Model Metrics", 
+            icon=":material/table_chart:",
+        ),
     ]
 )
 pg.run()

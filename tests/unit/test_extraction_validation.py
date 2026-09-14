@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from forecasting_engine.extraction.validation import _format_failure, validate
+from forecasting_engine.extraction.validation import _format_failure, schema_errors, validate
 
 
 def frame(dates, **columns):
@@ -98,6 +98,23 @@ def test_unsorted_dates_are_a_schema_error():
     data = frame(["2024-01-02", "2024-01-01"], A_Index_PX_LAST=[1.0, 2.0])
     report = validate(data)
     assert any("ascending" in e for e in report.schema_errors)
+
+
+def test_schema_errors_is_empty_for_a_clean_file():
+    data = frame(["2024-01-02", "2024-01-03"], A_Index_PX_LAST=[100.0, 101.0])
+    assert schema_errors(data) == []
+
+
+def test_schema_errors_names_a_bad_value():
+    data = frame(["2024-01-01", "2024-01-02"], A_Index_PX_LAST=[100.0, -5.0])
+    assert any("PX_LAST" in e for e in schema_errors(data))
+
+
+def test_schema_errors_matches_validate_report():
+    # validate() delegates to schema_errors() for this field — same file,
+    # same result, whichever entry point a caller uses.
+    data = frame(["2024-01-01", "2024-01-02"], A_Index_PX_LAST=[100.0, -5.0])
+    assert validate(data).schema_errors == schema_errors(data)
 
 
 def test_a_timestamp_failure_case_is_shown_as_dd_mm_yyyy_with_no_time():
