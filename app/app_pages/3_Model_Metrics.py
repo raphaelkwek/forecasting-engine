@@ -10,12 +10,14 @@ import html
 import streamlit as st
 
 import ui
-from forecasting_engine.reporting.model_metrics import (
-    Cell,
-    ModelRunResult,
-    build_metrics_rows,
-)
-from forecasting_engine.validation.crash import CrashDiagnostics
+from forecasting_engine.reporting.model_metrics import Cell, build_metrics_rows
+
+#: Matches app_pages/4_Models.py's result-key constants — duplicated rather than
+#: imported because a page filename starting with a digit isn't a valid Python
+#: module name.
+POLYNOMIAL_RESULT_KEY = "polynomial_result"
+FAMAFRENCH_RESULT_KEY = "famafrench_result"
+ML_RESULT_KEY = "ml_result"
 
 COLUMNS: tuple[str, ...] = (
     "Model",
@@ -42,31 +44,21 @@ st.caption(
     "figures are always diagnostic, never a pass/fail bar."
 )
 
-# TEMPORARY preview data until a real run store exists (FYP-42/43/44).
-# Replace with `results = {}` once one does.
-results: dict = {
-    "FF5 Benchmark": ModelRunResult(
-        ic=0.025,
-        oos_rank_ic=0.022,
-        rmse=0.018,
-        pbo=None,
-        crash=CrashDiagnostics(recall=0.55, precision=0.40, f1=0.4655, n_true_tail_days=11),
-    ),
-    "Polynomial": ModelRunResult(
-        ic=0.031,
-        oos_rank_ic=0.028,
-        rmse=0.016,
-        pbo=0.35,
-        crash=CrashDiagnostics(recall=0.62, precision=0.48, f1=0.5379, n_true_tail_days=11),
-    ),
-    "Machine Learning": ModelRunResult(
-        ic=0.019,
-        oos_rank_ic=0.015,
-        rmse=0.017,
-        pbo=0.58,
-        crash=CrashDiagnostics(recall=0.70, precision=0.45, f1=0.5470, n_true_tail_days=11),
-    ),
-}
+# All three model families (FYP-42/43/44) are real now, read from the Models
+# page's session state — no placeholder data left.
+results: dict = {}
+
+famafrench_result = st.session_state.get(FAMAFRENCH_RESULT_KEY)
+if famafrench_result is not None:
+    results["FF5 Benchmark"] = famafrench_result
+
+polynomial_result = st.session_state.get(POLYNOMIAL_RESULT_KEY)
+if polynomial_result is not None:
+    results["Polynomial"] = polynomial_result
+
+ml_result = st.session_state.get(ML_RESULT_KEY)
+if ml_result is not None:
+    results["Machine Learning"] = ml_result
 
 
 def _cell_html(cell: Cell) -> str:

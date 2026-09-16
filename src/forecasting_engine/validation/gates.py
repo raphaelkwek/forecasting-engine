@@ -23,13 +23,17 @@ class ValidationOutcome:
     failed_gates: tuple[str, ...]
 
 
-def evaluate_candidate(mean_oos_rank_ic: float, pbo: float) -> ValidationOutcome:
+def evaluate_candidate(mean_oos_rank_ic: float, pbo: float | None) -> ValidationOutcome:
     """Apply the OOS Rank IC and PBO promotion gates. A NaN input (e.g. a
     candidate whose IC couldn't be computed) fails its gate rather than
-    passing or raising."""
+    passing or raising. ``pbo=None`` means no configuration search happened
+    (a benchmark with no hyperparameters, or a user-supplied function) — the
+    same "no configuration search" case ``reporting.model_metrics`` already
+    renders as N/A rather than a pass/fail badge, so that gate is skipped
+    here too rather than raising on the comparison ``None <= PBO_GATE``."""
     failed = []
     if not (mean_oos_rank_ic > OOS_RANK_IC_GATE):
         failed.append("oos_rank_ic")
-    if not (pbo <= PBO_GATE):
+    if pbo is not None and not (pbo <= PBO_GATE):
         failed.append("pbo")
     return ValidationOutcome(promoted=not failed, failed_gates=tuple(failed))

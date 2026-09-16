@@ -1,0 +1,189 @@
+"""The shared walk-forward harness: fit and predict any Forecaster, fold by fold, and
+turn the result into the fixed contract FYP-45/FYP-14 already built the comparison view
+and promotion gates against.
+
+FYP-45 already built what happens *after* a model produces fold-by-fold predictions —
+``pbo.compute_pbo``, ``crash.crash_diagnostics_over_folds``, ``gates.evaluate_candidate``
+— but nothing fit a model and produced those predictions in the first place. This module
+is that missing piece: "plug a model into the shared walk-forward harness" means running
+it through ``evaluate()``, then ``summarize()`` (one configuration) or
+``select_best_candidate()`` + ``summarize()`` (several configurations to compare, like
+Polynomial's degree/regularizer grid or Boosted's tuned XGBoost vs. LightGBM).
+
+``evaluate()`` deliberately returns raw predictions and realised values per fold rather
+than pre-scored metrics, because each downstream consumer scores differently: crash
+diagnostics want the raw series, IC/RankIC/RMSE get averaged across folds, and PBO
+needs several *different* models' fold results compared against each other, not one
+model's alone (so ``summarize()`` takes an already-computed PBO rather than computing
+one itself).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+from forecasting_engine.ingest.align import FeaturePanel
+from forecasting_engine.models.base import Forecaster, ModelDescription
+from forecasting_engine.reporting.model_metrics import ModelRunResult
+from forecasting_engine.validation import metrics
+from forecasting_engine.validation.crash import (
+    CrashDiagnostics,
+    crash_diagnostics,
+    label_crash_days,
+)
+from forecasting_engine.validation.pbo import N_BLOCKS, compute_pbo
+from forecasting_engine.validation.splitters import PurgedWalkForward
+
+
+@dataclass(frozen=True)
+class FoldResult:
+    """One walk-forward fold's fit/predict outcome."""
+
+    fold: int
+    train: pd.DatetimeIndex
+    test: pd.DatetimeIndex
+    predicted: pd.Series
+    """Predictions over ``test``, indexed the same way."""
+    predicted_train: pd.Series
+    """Predictions over ``train`` (in-sample, from the same fit). Crash-day
+    labelling (``validation/crash.py``) calibrates its flag threshold from a
+    model's own in-sample predicted distribution before applying it
+    out-of-sample — it needs both, not just the test-window predictions."""
+    realised: pd.Series
+    """``panel``'s target over ``test`` — what ``predicted`` is scored against."""
+    realised_train: pd.Series
+    """``panel``'s target over ``train`` — crash-day labelling's tail threshold
+    is computed from the *realised* training-window return distribution."""
+    description: ModelDescription
+    """This fold's fitted model, described — a degree-5 derived fit can pick
+    different terms fold to fold, so the description travels with the fold
+    rather than being reported once for the whole run."""
+
+
+def evaluate(
+    make_forecaster: Callable[[], Forecaster],
+    panel: FeaturePanel,
+    splitter: PurgedWalkForward,
+) -> tuple[FoldResult, ...]:
+    """Fit a fresh Forecaster per fold on its train window, predict on its test window.
+
+    ``make_forecaster`` is a factory, not a shared instance: each fold fits
+    independently, so reusing one fitted instance across folds would let an
+    earlier fold's fit leak into a later one's prediction.
+    """
+    target = panel.targets[0]
+    results = []
+    for fold, (train_idx, test_idx) in enumerate(splitter.split(panel)):
+        forecaster = make_forecaster()
+        forecaster.fit(panel, train_idx)
+        predicted = forecaster.predict(panel, test_idx)
+        predicted_train = forecaster.predict(panel, train_idx)
+        realised = panel.frame.loc[test_idx, target]
+        realised_train = panel.frame.loc[train_idx, target]
+        results.append(
+            FoldResult(
+                fold=fold,
+                train=train_idx,
+                test=test_idx,
+                predicted=predicted,
+                predicted_train=predicted_train,
+                realised=realised,
+                realised_train=realised_train,
+                description=forecaster.describe(),
+            )
+        )
+    return tuple(results)
+
+
+def summarize(
+    folds: tuple[FoldResult, ...], *, pbo: float | None = None
+) -> tuple[ModelRunResult, ModelDescription]:
+    """Mean IC/RankIC/RMSE across folds, crash diagnostics, and the most recent
+    fold's fitted description — the shape every ``run_*`` function (Polynomial,
+    and now Fama-French) bridges its own model into.
+
+    Requires at least one fold. Callers should check ``evaluate()``'s output is
+    non-empty themselves and raise their own domain-appropriate error message
+    (e.g. "the committed dataset is too short for this train/test/embargo
+    window") before calling this — the message belongs with the caller who
+    knows what a portfolio manager should be told to fix.
+    """
+    result = ModelRunResult(
+        ic=_mean_finite(metrics.ic(f.predicted, f.realised) for f in folds),
+        oos_rank_ic=_mean_finite(_rank_ics(folds)),
+        rmse=_mean_finite(metrics.rmse(f.predicted, f.realised) for f in folds),
+        pbo=pbo,
+        crash=_crash_over_folds(folds),
+    )
+    # FYP-122's "deliverable artifact": the most recent fold's fitted terms
+    # and coefficients — a fit can pick different terms fold to fold, so this
+    # is what the model would use if deployed today, not an average across a
+    # walk-forward run's whole history.
+    return result, folds[-1].description
+
+
+def select_best_candidate(
+    per_candidate: dict[str, tuple[FoldResult, ...]], *, n_blocks: int = N_BLOCKS
+) -> tuple[str, float]:
+    """Compare several named candidates' fold results via PBO, return the name of
+    the one with the best mean OOS Rank IC and the shared PBO score every
+    candidate was judged against.
+
+    Used by any ``run_*`` function that has more than one fixed configuration to
+    choose between — ``DerivedPolynomial``'s degree/regularizer grid,
+    ``BoostedForecaster``'s tuned XGBoost vs. tuned LightGBM. A single
+    configuration (FF5, a user-supplied polynomial) has nothing to compare
+    against and reports ``pbo=None`` directly to ``summarize()`` instead of
+    calling this.
+
+    The per-candidate return series PBO's CSCV compares is a simple directional
+    strategy — ``sign(prediction) * realised`` — a documented working default,
+    not a claim about how the sponsor wants PBO measured.
+    """
+    pbo_result = compute_pbo(
+        {name: _strategy_returns(folds) for name, folds in per_candidate.items()},
+        n_blocks=n_blocks,
+    )
+    best_name = max(per_candidate, key=lambda name: _mean_finite(_rank_ics(per_candidate[name])))
+    return best_name, pbo_result.pbo
+
+
+def _strategy_returns(folds: tuple[FoldResult, ...]) -> pd.Series:
+    parts = [np.sign(f.predicted) * f.realised for f in folds]
+    return pd.concat(parts) if parts else pd.Series(dtype=float)
+
+
+def _rank_ics(folds: tuple[FoldResult, ...]) -> list[float]:
+    return [metrics.rank_ic(f.predicted, f.realised) for f in folds]
+
+
+def _mean_finite(values: Iterable[float]) -> float:
+    finite = [v for v in values if v == v]  # drop NaN
+    return sum(finite) / len(finite) if finite else float("nan")
+
+
+def _crash_over_folds(folds: tuple[FoldResult, ...]) -> CrashDiagnostics:
+    """label_crash_days() per fold using *that fold's own* train+test
+    predictions, never another fold's. A walk-forward run refits per fold, so
+    consecutive folds' train windows overlap and were scored by different
+    models — the shared ``crash_diagnostics_over_folds`` helper assumes one
+    continuous prediction series from a single model and would either mix
+    fits or need one that doesn't exist here. Concatenating each fold's own
+    correctly-scoped labels before scoring reproduces its behaviour without
+    that assumption.
+    """
+    labelled = [
+        label_crash_days(
+            pd.concat([f.predicted_train, f.predicted]),
+            pd.concat([f.realised_train, f.realised]),
+            f.train,
+            f.test,
+        )
+        for f in folds
+    ]
+    combined = pd.concat(labelled)
+    return crash_diagnostics(combined["flagged"], combined["true_tail"])

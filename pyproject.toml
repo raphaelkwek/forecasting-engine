@@ -11,6 +11,12 @@ dependencies = [
     "openpyxl>=3.1.5",
     "pandas-market-calendars>=5.4.0",
     "pandera[pandas]>=0.33.1",
+    "scikit-learn>=1.5",
+    "statsmodels>=0.14",
+    "xgboost>=2.0",
+    "lightgbm>=4.0",
+    "optuna>=3.6",
+    "shap>=0.45",
 ]
 
 [project.optional-dependencies]
@@ -32,7 +38,12 @@ addopts = "-q"
 # Streamlit puts the main script's directory on sys.path, so pages import
 # sibling modules by bare name. Mirror that here so tests import them the
 # same way the running app does.
-pythonpath = ["app"]
+#
+# "src" is added explicitly rather than relied on via the editable install:
+# this sandbox's filesystem has shown itself unreliable at keeping the
+# editable-install .pth file in a working state between invocations, and
+# pytest's own pythonpath insertion doesn't depend on it at all.
+pythonpath = ["app", "src"]
 
 [tool.ruff]
 line-length = 100
