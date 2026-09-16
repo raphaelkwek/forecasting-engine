@@ -74,12 +74,42 @@ family = st.radio(
 )
 
 cols = st.columns(3)
-horizon = cols[0].number_input("Forecast horizon (days)", min_value=1, value=5, step=1)
-lag_days = cols[1].number_input("Signal lag (days)", min_value=1, value=1, step=1)
-train = cols[2].number_input("Walk-forward train window (days)", min_value=10, value=120, step=10)
+horizon = cols[0].number_input(
+    "Forecast horizon (days)",
+    min_value=1,
+    value=5,
+    step=1,
+    help="How many days ahead to predict",
+)
+lag_days = cols[1].number_input(
+    "Signal lag (days)",
+    min_value=1,
+    value=1,
+    step=1,
+    help="Delay before today's data is usable (avoids look-ahead)",
+)
+train = cols[2].number_input(
+    "Walk-forward train window (days)",
+    min_value=10,
+    value=120,
+    step=10,
+    help="How much history the model studies (120 days ≈ 6 months)",
+)
 cols2 = st.columns(2)
-test = cols2[0].number_input("Walk-forward test window (days)", min_value=1, value=20, step=5)
-embargo = cols2[1].number_input("Embargo (days)", min_value=0, value=int(horizon), step=1)
+test = cols2[0].number_input(
+    "Walk-forward test window (days)",
+    min_value=1,
+    value=20,
+    step=5,
+    help="The days right after training where we check if the predictions actually came true",
+)
+embargo = cols2[1].number_input(
+    "Embargo (days)",
+    min_value=0,
+    value=int(horizon),
+    step=1,
+    help="Buffer between training and grading, so they don't leak into each other",
+)
 splitter = PurgedWalkForward(train=int(train), test=int(test), embargo=int(embargo))
 
 result: ModelRunResult | None = None
