@@ -137,3 +137,68 @@ def test_derived_polynomial_predict_before_fit_raises():
     panel = _linear_panel()
     with pytest.raises(RuntimeError):
         DerivedPolynomial().predict(panel, panel.frame.index)
+
+
+# --- the fit must not depend on the units its signals are quoted in --------
+
+
+def _scaled_panel(factor: float, n: int = 400) -> FeaturePanel:
+    """A real, quadratic relationship on a signal quoted in arbitrary units.
+
+    The live dataset mixes an index level (4,000) with a volatility point (18)
+    and a spread (1.5), and ``PolynomialFeatures`` squares and cubes all three,
+    so its columns span several orders of magnitude. L1's penalty applies to
+    coefficients, whose natural size depends on those units, so these pin down
+    that the fit still behaves when the units change.
+    """
+    idx = pd.date_range("2024-01-01", periods=n, freq="D")
+    rng = np.random.default_rng(7)
+    x = rng.normal(size=n)
+    target = 0.5 * x**2 + rng.normal(scale=0.05, size=n)
+    frame = pd.DataFrame({"x": x * factor, "target": target}, index=idx)
+    return FeaturePanel(frame=frame, signals=("x",), targets=("target",), lag_days=1)
+
+
+@pytest.mark.parametrize("factor", [1.0, 1_000.0])
+def test_derived_polynomial_finds_the_relationship_whatever_the_units(factor):
+    panel = _scaled_panel(factor)
+    model = DerivedPolynomial(degree=2, regularizer="lasso")
+
+    model.fit(panel, panel.frame.index)
+
+    assert model.describe().terms, "the quadratic term should survive regularization"
+    predicted = model.predict(panel, panel.frame.index)
+    actual = panel.frame["target"]
+    r_squared = 1 - ((predicted - actual) ** 2).sum() / ((actual - actual.mean()) ** 2).sum()
+    assert r_squared > 0.8
+
+
+def test_derived_polynomial_scores_the_same_whatever_the_units():
+    small, large = _scaled_panel(1.0), _scaled_panel(1_000.0)
+    fits = []
+    for panel in (small, large):
+        model = DerivedPolynomial(degree=2, regularizer="lasso")
+        model.fit(panel, panel.frame.index)
+        fits.append(model.predict(panel, panel.frame.index))
+
+    assert fits[0].corr(fits[1]) > 0.99
+
+
+def test_derived_polynomial_reports_coefficients_in_the_signals_own_units():
+    # The displayed equation is only meaningful if its coefficients apply to the
+    # raw signal, so the description must undo any internal rescaling.
+    panel = _scaled_panel(1_000.0)
+    model = DerivedPolynomial(degree=2, regularizer="lasso")
+    model.fit(panel, panel.frame.index)
+    description = model.describe()
+
+    idx = panel.frame.index
+    rebuilt = pd.Series(description.intercept, index=idx)
+    for name, coefficient in zip(description.terms, description.coefficients, strict=True):
+        product = pd.Series(1.0, index=idx)
+        for part in name.split(" "):
+            column, _, power = part.partition("^")
+            product = product * panel.frame[column] ** (int(power) if power else 1)
+        rebuilt = rebuilt + coefficient * product
+
+    np.testing.assert_allclose(rebuilt, model.predict(panel, idx), rtol=1e-9, atol=1e-12)
