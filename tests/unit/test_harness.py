@@ -243,3 +243,91 @@ def test_select_best_candidate_picks_the_higher_rank_ic_candidate():
 
     assert best_name == "strong"
     assert 0.0 <= pbo_value <= 1.0
+
+
+# --- per-fold screening, recorded on the fold and summarised for display ----
+
+
+def _screening_fixture(signals: dict[str, object], n: int = 60) -> FeaturePanel:
+    idx = pd.date_range("2024-01-01", periods=n, freq="D")
+    frame = pd.DataFrame({**signals, "fwd_return_1d": list(range(n))}, index=idx)
+    return FeaturePanel(
+        frame=frame, signals=tuple(signals), targets=("fwd_return_1d",), lag_days=1
+    )
+
+
+def _strong_and_flat() -> FeaturePanel:
+    return _screening_fixture({"strong": [v * 3 for v in range(60)], "flat": 1.0})
+
+
+def _screened_strong_and_flat():
+    splitter = PurgedWalkForward(30, 5, 2)
+    return evaluate(_SignalRecordingForecaster, _strong_and_flat(), splitter, screen=True)
+
+
+def test_no_screening_is_recorded_when_screen_is_false():
+    folds = evaluate(_SignalRecordingForecaster, _strong_and_flat(), PurgedWalkForward(30, 5, 2))
+    assert folds
+    assert all(f.screening is None for f in folds)
+
+
+def test_each_fold_records_exactly_the_signals_it_was_fit_on():
+    # The recorded value must be what fit() actually received, not a second
+    # screening computation that could drift from it.
+    recorder = _SignalRecordingForecaster()
+    folds = evaluate(lambda: recorder, _strong_and_flat(), PurgedWalkForward(30, 5, 2), screen=True)
+
+    assert [f.screening.fitted for f in folds] == recorder.seen_signals
+    assert all(f.screening.fitted == ("strong",) for f in folds)
+    assert all(f.screening.candidates == ("strong", "flat") for f in folds)
+
+
+def test_a_fold_that_excluded_every_signal_records_that_it_fell_back():
+    # Screening kept nothing, so the fold was fit on every signal. Recording
+    # only what screening kept would claim this fold used no signals at all.
+    panel = _screening_fixture({"flat_a": 1.0, "flat_b": 2.0}, n=40)
+    recorder = _SignalRecordingForecaster()
+    folds = evaluate(lambda: recorder, panel, PurgedWalkForward(20, 5, 1), screen=True)
+
+    for fold, seen in zip(folds, recorder.seen_signals, strict=True):
+        assert fold.screening.included == ()
+        assert fold.screening.fell_back
+        assert fold.screening.fitted == seen == ("flat_a", "flat_b")
+
+
+def test_the_summary_counts_how_many_folds_fit_each_signal():
+    folds = _screened_strong_and_flat()
+    result, _ = summarize(folds)
+
+    summary = result.screening
+    assert summary.folds == len(folds)
+    assert summary.fell_back == 0
+    assert dict(summary.counts) == {"strong": len(folds), "flat": 0}
+
+
+def test_a_signal_no_fold_used_is_still_listed_with_zero():
+    # The point of the table is to show a signal was screened out everywhere.
+    folds = _screened_strong_and_flat()
+    result, _ = summarize(folds)
+    assert ("flat", 0) in result.screening.counts
+
+
+def test_the_most_used_signals_are_listed_first():
+    folds = _screened_strong_and_flat()
+    result, _ = summarize(folds)
+    assert [name for name, _ in result.screening.counts] == ["strong", "flat"]
+
+
+def test_fallback_folds_count_as_using_every_signal():
+    panel = _screening_fixture({"flat_a": 1.0, "flat_b": 2.0}, n=40)
+    folds = evaluate(_SignalRecordingForecaster, panel, PurgedWalkForward(20, 5, 1), screen=True)
+    result, _ = summarize(folds)
+
+    assert result.screening.fell_back == len(folds)
+    assert dict(result.screening.counts) == {"flat_a": len(folds), "flat_b": len(folds)}
+
+
+def test_there_is_no_screening_summary_without_screening():
+    folds = evaluate(_SignalRecordingForecaster, _strong_and_flat(), PurgedWalkForward(30, 5, 2))
+    result, _ = summarize(folds)
+    assert result.screening is None

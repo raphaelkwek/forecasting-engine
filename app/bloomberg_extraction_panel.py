@@ -34,9 +34,9 @@ MERGED_KEY = "extraction_merged"
 REPORT_KEY = "extraction_report"
 FACTORS_KEY = "fama_french"
 
-#: The cleaned frame (and its own report) that Home and the Signals page
+#: The cleaned frame (and its own report) that Home, Models and Model Metrics
 #: read. Only updated when the user clicks "Use Updated Data" — not on every
-#: gap-review edit — so both pages stay stable while decisions are still
+#: gap-review edit — so those pages stay stable while decisions are still
 #: being made.
 COMMITTED_KEY = "extraction_committed"
 COMMITTED_REPORT_KEY = "extraction_committed_report"
@@ -195,9 +195,9 @@ def render() -> None:
             icon=":material/check_circle:",
         )
     elif COMMITTED_KEY in st.session_state:
-        st.caption("A dataset is committed for Home and the Signals page.")
+        st.caption("A dataset is committed for Home, Models and Model Metrics.")
     else:
-        st.caption("Nothing committed yet — Home and the Signals page have no data yet.")
+        st.caption("Nothing committed yet — Home, Models and Model Metrics have no data yet.")
 
     # Filled in now (not where reserved above) so this reflects a commit made
     # by the button just above it, in this same run — no rerun needed.
@@ -394,7 +394,7 @@ def render_summary() -> None:
     """The Home page's data quality report, read back from session state.
 
     Reflects whichever dataset was last committed on the Data page via
-    "Use Updated Data" — the same commit the Signals page reads — not
+    "Use Updated Data" — the same commit the Models page reads — not
     every upload or gap-review edit.
     """
     ui.inject()

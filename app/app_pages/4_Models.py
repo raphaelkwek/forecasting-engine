@@ -2,9 +2,9 @@
 function, and FYP-44's machine-learning models — every model family built so far,
 sharing one walk-forward harness.
 
-Reads the dataset committed via "Use Updated Data" on the Data page, same as the
-Signals page. No maths lives here — fitting is in forecasting_engine.models.polynomial
-/ famafrench / boosted; the walk-forward loop is in forecasting_engine.validation.harness.
+Reads the dataset committed via "Use Updated Data" on the Data page. No maths
+lives here — fitting is in forecasting_engine.models.polynomial / famafrench /
+boosted; the walk-forward loop is in forecasting_engine.validation.harness.
 """
 
 from __future__ import annotations
@@ -274,3 +274,28 @@ if result_key in st.session_state:
         st.dataframe(rows, width="stretch", hide_index=True)
     else:
         st.caption("No terms survived fitting — every coefficient was regularized to zero.")
+
+    # Only runs that screen per fold (derived polynomial, machine learning) have
+    # this. getattr, not attribute access: a result kept in session state from
+    # before this field existed shouldn't take the page down.
+    screening = getattr(result, "screening", None)
+    if screening is not None:
+        st.markdown(ui.eyebrow("Signal inclusion across folds"), unsafe_allow_html=True)
+        st.caption(
+            f"How many of the {screening.folds} walk-forward folds were fit on each signal. "
+            "Every fold screens signals on its own training window, so a signal can be "
+            "kept in some folds and dropped in others."
+        )
+        st.dataframe(
+            [
+                {"Signal": signal, "Folds": f"{used}/{screening.folds}"}
+                for signal, used in screening.counts
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+        if screening.fell_back:
+            st.caption(
+                f"{screening.fell_back} of {screening.folds} folds kept no signal after "
+                "screening, so they were fit on every signal instead."
+            )
