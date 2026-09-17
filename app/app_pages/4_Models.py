@@ -212,9 +212,8 @@ else:
     st.subheader("Machine learning (XGBoost / LightGBM)")
     st.caption(
         "Tunes XGBoost and LightGBM once each via Optuna, refits both per walk-forward "
-        "fold with those fixed hyperparameters (FYP-129's refit cadence — tuning is too "
-        "expensive to repeat every fold), compares them via PBO, and reports the one "
-        "with the best out-of-sample rank IC. Feature attribution below is by SHAP."
+        "fold with those fixed hyperparameters, compares them via PBO, and reports the "
+        "one with the best out-of-sample rank IC. Feature attribution below is by SHAP."
     )
     n_trials = st.number_input(
         "Optuna trials per library",

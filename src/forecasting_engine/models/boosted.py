@@ -182,6 +182,13 @@ def run_boosted(
     compares via PBO, and reports the one with the best mean OOS Rank IC — the
     same shape ``run_derived_polynomial`` uses, XGBoost/LightGBM standing in for
     a degree/regularizer grid.
+
+    Feature selection is screened per fold (``evaluate(..., screen=True)``) —
+    a signal below FYP-102's inclusion threshold, judged on that fold's own
+    train window, is left out of that fold's fit. Tuning itself still searches
+    hyperparameters over every signal on the first fold's train window; only
+    which columns a fold is *fit* on is screened, not the hyperparameter
+    search space.
     """
     first_fold = next(iter(splitter.split(panel)), None)
     if first_fold is None:
@@ -196,7 +203,10 @@ def run_boosted(
     }
     per_candidate = {
         library: evaluate(
-            lambda library=library: BoostedForecaster(library, tuned[library]), panel, splitter
+            lambda library=library: BoostedForecaster(library, tuned[library]),
+            panel,
+            splitter,
+            screen=True,
         )
         for library in _LIBRARIES
     }

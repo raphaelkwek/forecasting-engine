@@ -21,11 +21,12 @@ one itself).
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
 
+from forecasting_engine.features.screening import screen_over_folds
 from forecasting_engine.ingest.align import FeaturePanel
 from forecasting_engine.models.base import Forecaster, ModelDescription
 from forecasting_engine.reporting.model_metrics import ModelRunResult
@@ -68,20 +69,37 @@ def evaluate(
     make_forecaster: Callable[[], Forecaster],
     panel: FeaturePanel,
     splitter: PurgedWalkForward,
+    *,
+    screen: bool = False,
 ) -> tuple[FoldResult, ...]:
     """Fit a fresh Forecaster per fold on its train window, predict on its test window.
 
     ``make_forecaster`` is a factory, not a shared instance: each fold fits
     independently, so reusing one fitted instance across folds would let an
     earlier fold's fit leak into a later one's prediction.
+
+    ``screen=True`` re-screens ``panel.signals`` for each fold via
+    ``features.screening.screen_over_folds``, using only that fold's own train
+    window, and fits/predicts on the signals it included — the walk-forward
+    re-evaluation FYP-108/110 call for. A fold whose screening excludes every
+    signal falls back to the full set rather than fitting on none. Off by
+    default: a caller whose Forecaster is given its features directly (a
+    user-supplied formula, a fixed factor benchmark) has nothing for screening
+    to filter.
     """
     target = panel.targets[0]
+    folds = list(splitter.split(panel))
+    per_fold_screen = screen_over_folds(panel, folds) if screen else None
     results = []
-    for fold, (train_idx, test_idx) in enumerate(splitter.split(panel)):
+    for fold, (train_idx, test_idx) in enumerate(folds):
+        fold_panel = panel
+        if per_fold_screen is not None:
+            included = tuple(s.signal for s in per_fold_screen[fold] if s.included)
+            fold_panel = replace(panel, signals=included or panel.signals)
         forecaster = make_forecaster()
-        forecaster.fit(panel, train_idx)
-        predicted = forecaster.predict(panel, test_idx)
-        predicted_train = forecaster.predict(panel, train_idx)
+        forecaster.fit(fold_panel, train_idx)
+        predicted = forecaster.predict(fold_panel, test_idx)
+        predicted_train = forecaster.predict(fold_panel, train_idx)
         realised = panel.frame.loc[test_idx, target]
         realised_train = panel.frame.loc[train_idx, target]
         results.append(

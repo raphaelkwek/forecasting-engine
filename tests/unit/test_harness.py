@@ -152,6 +152,84 @@ def test_summarize_computes_crash_diagnostics():
     assert result.crash.n_true_tail_days >= 0
 
 
+class _SignalRecordingForecaster:
+    """Records the signal set it was fit with per fold; predicts zeros
+    unconditionally, since these tests only care what ``evaluate()`` handed
+    to ``fit()``, not prediction quality."""
+
+    name = "Recorder"
+
+    def __init__(self) -> None:
+        self.seen_signals: list[tuple[str, ...]] = []
+
+    def fit(self, panel: FeaturePanel, train: pd.DatetimeIndex) -> None:
+        self.seen_signals.append(panel.signals)
+
+    def predict(self, panel: FeaturePanel, idx: pd.DatetimeIndex) -> pd.Series:
+        return pd.Series(0.0, index=idx)
+
+    def describe(self) -> ModelDescription:
+        return ModelDescription(name=self.name, terms=(), coefficients=())
+
+
+def test_screen_true_drops_a_signal_that_fails_screening_per_fold():
+    # "strong" is a strictly monotonic transform of the target (rank IC == 1.0
+    # on any window); "flat" is constant (rank IC is undefined -> NaN ->
+    # excluded) — both deterministic regardless of which fold's window is used,
+    # so the assertion below can't flake on a particular random draw.
+    idx = pd.date_range("2024-01-01", periods=60, freq="D")
+    target = list(range(60))
+    frame = pd.DataFrame(
+        {"strong": [v * 3 for v in target], "flat": 1.0, "fwd_return_1d": target}, index=idx
+    )
+    panel = FeaturePanel(
+        frame=frame, signals=("strong", "flat"), targets=("fwd_return_1d",), lag_days=1
+    )
+    splitter = PurgedWalkForward(train=30, test=5, embargo=2)
+    recorder = _SignalRecordingForecaster()
+
+    evaluate(lambda: recorder, panel, splitter, screen=True)
+
+    assert recorder.seen_signals, "fixture must produce at least one fold"
+    assert all(signals == ("strong",) for signals in recorder.seen_signals)
+
+
+def test_screen_false_leaves_every_signal_unfiltered():
+    idx = pd.date_range("2024-01-01", periods=60, freq="D")
+    target = list(range(60))
+    frame = pd.DataFrame(
+        {"strong": [v * 3 for v in target], "flat": 1.0, "fwd_return_1d": target}, index=idx
+    )
+    panel = FeaturePanel(
+        frame=frame, signals=("strong", "flat"), targets=("fwd_return_1d",), lag_days=1
+    )
+    splitter = PurgedWalkForward(train=30, test=5, embargo=2)
+    recorder = _SignalRecordingForecaster()
+
+    evaluate(lambda: recorder, panel, splitter)  # screen defaults to False
+
+    assert recorder.seen_signals
+    assert all(signals == ("strong", "flat") for signals in recorder.seen_signals)
+
+
+def test_screen_true_falls_back_to_every_signal_if_all_excluded():
+    # Both signals are constant -> both score NaN -> both excluded. A fold
+    # left with zero features would break every model family's fit(), so
+    # evaluate() must fall back to the full signal set instead.
+    idx = pd.date_range("2024-01-01", periods=40, freq="D")
+    frame = pd.DataFrame({"flat_a": 1.0, "flat_b": 2.0, "fwd_return_1d": range(40)}, index=idx)
+    panel = FeaturePanel(
+        frame=frame, signals=("flat_a", "flat_b"), targets=("fwd_return_1d",), lag_days=1
+    )
+    splitter = PurgedWalkForward(train=20, test=5, embargo=1)
+    recorder = _SignalRecordingForecaster()
+
+    evaluate(lambda: recorder, panel, splitter, screen=True)
+
+    assert recorder.seen_signals, "fixture must produce at least one fold"
+    assert all(set(signals) == {"flat_a", "flat_b"} for signals in recorder.seen_signals)
+
+
 def test_select_best_candidate_picks_the_higher_rank_ic_candidate():
     # A bigger panel than the summarize()/evaluate() tests above — PBO's CSCV
     # splits the combined strategy-return series into n_blocks pieces, so it

@@ -166,19 +166,19 @@ def render() -> None:
     download_merged = _render_gap_review(merged)
 
     st.divider()
-    st.markdown(ui.eyebrow("Home & Signals"), unsafe_allow_html=True)
+    st.markdown(ui.eyebrow("Using this data"), unsafe_allow_html=True)
     st.caption(
-        "Home's data quality report and the Signals page both read whichever "
-        "dataset was last committed here — neither updates on every gap-review "
-        "edit. Make your include/clean choices above, then click below to push "
-        "them through."
+        "This dataset must be uploaded here before it can be used anywhere else in "
+        "the application — every other page reads whichever dataset was last "
+        "committed here, and none of them update on every gap-review edit. Make "
+        "your include/clean choices above, then click below to push them through."
     )
     if st.button("Use Updated Data", icon=":material/publish:"):
         with st.spinner("Validating the cleaned dataset…"):
             st.session_state[COMMITTED_KEY] = download_merged
             st.session_state[COMMITTED_REPORT_KEY] = validation.validate(download_merged)
         st.success(
-            "Home and the Signals page now reflect this cleaned dataset.",
+            "This cleaned dataset is now committed and available throughout the application.",
             icon=":material/check_circle:",
         )
     elif COMMITTED_KEY in st.session_state:

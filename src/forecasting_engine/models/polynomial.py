@@ -299,10 +299,17 @@ def run_derived_polynomial(
     ``n_blocks`` is forwarded to ``compute_pbo`` — CSCV's cost is combinatorial
     in it (``C(n_blocks, n_blocks/2)`` splits), so a caller under a tight
     compute budget (an interactive UI, a test) can lower it from the default.
+
+    Feature selection is screened per fold (``evaluate(..., screen=True)``) —
+    a signal below FYP-102's inclusion threshold, judged on that fold's own
+    train window, is left out of that fold's fit.
     """
     per_candidate = {
         f"degree{c.degree}_{c.regularizer}": evaluate(
-            lambda c=c: DerivedPolynomial(c.degree, c.regularizer, c.max_terms), panel, splitter
+            lambda c=c: DerivedPolynomial(c.degree, c.regularizer, c.max_terms),
+            panel,
+            splitter,
+            screen=True,
         )
         for c in candidates
     }
