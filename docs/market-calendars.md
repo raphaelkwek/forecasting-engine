@@ -1,5 +1,13 @@
 # Market calendars: source, mapping and reconciliation
 
+> **Status, 17 Sep 2026: design record; not the live behaviour.** The per-signal
+> reconciliation below lived in `quality/gaps.py`, removed in the sprint plan's
+> Phase 3 because nothing in the app called it. The live gap labelling in
+> `extraction/bloomberg_csv.py` checks every column against one NYSE calendar,
+> which this document shows is less accurate. Keep this as the design to port
+> if Phase 2 adopts per-signal calendars; the removed code is in git history
+> at `4a90170`.
+
 How the engine decides whether a date missing from an upload is a real gap or a
 day the market was shut. Written for auditability: every choice below is
 reproducible against the ten years of Bloomberg daily data available on

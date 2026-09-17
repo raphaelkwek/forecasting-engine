@@ -3,12 +3,13 @@
 import pandas as pd
 
 from forecasting_engine import fixtures
-from forecasting_engine.ingest import schema
 
 
-def test_clean_frame_satisfies_the_schema():
+def test_a_clean_frame_is_complete_and_in_date_order():
     frame = fixtures.generate(years=2, seed=1, with_defects=False)
-    assert schema.validate(frame) == []
+    assert not frame.isna().any().any()
+    assert frame[fixtures.DATE_COLUMN].is_unique
+    assert frame[fixtures.DATE_COLUMN].is_monotonic_increasing
 
 
 def test_generation_is_deterministic():
@@ -23,23 +24,25 @@ def test_different_seeds_give_different_data():
     assert not first["vix"].equals(second["vix"])
 
 
-def test_all_required_columns_present():
+def test_every_column_is_present_in_order():
     frame = fixtures.generate(years=2, seed=1, with_defects=False)
-    assert set(schema.REQUIRED_COLUMNS) <= set(frame.columns)
+    assert list(frame.columns) == [fixtures.DATE_COLUMN, *fixtures.SIGNAL_COLUMNS]
 
 
 def test_defective_frame_contains_duplicates_and_blanks():
     frame = fixtures.generate(years=5, seed=1, with_defects=True)
-    kinds = {issue.kind for issue in schema.validate(frame)}
-    assert "duplicate_date" in kinds
+    assert frame[fixtures.DATE_COLUMN].duplicated().any()
     assert frame.isna().any().any()
 
 
 def test_the_defects_are_reportable_but_never_fatal():
-    # The demo file has to reach the quality report, so nothing injected may
-    # block. A file that halts the pipeline shows the report to nobody.
+    # The demo file has to load, so nothing injected may make a value unreadable:
+    # duplicates and blanks only, never an unparseable date or text in a number
+    # column. A file rejected at the door shows its defects to nobody.
     frame = fixtures.generate(years=5, seed=1, with_defects=True)
-    assert schema.blocking(schema.validate(frame)) == []
+    assert pd.to_datetime(frame[fixtures.DATE_COLUMN], errors="coerce").notna().all()
+    for column in fixtures.SIGNAL_COLUMNS:
+        assert pd.api.types.is_numeric_dtype(frame[column]), column
 
 
 def test_crash_window_produces_a_large_drawdown():
@@ -74,7 +77,7 @@ def test_the_spreads_stay_in_ranges_a_reader_would_recognise():
 
 def test_a_short_file_gets_the_same_treatment_as_a_long_one():
     frame = fixtures.generate(years=1, seed=1, with_defects=True)
-    assert "duplicate_date" in {i.kind for i in schema.validate(frame)}
+    assert frame[fixtures.DATE_COLUMN].duplicated().any()
 
 
 def test_dates_are_written_as_iso_dates(tmp_path):
@@ -88,7 +91,8 @@ def test_cli_writes_a_readable_file(tmp_path):
     exit_code = fixtures.main(["--years", "2", "--out", str(out), "--clean"])
     assert exit_code == 0
     written = pd.read_csv(out)
-    assert schema.validate(written) == []
+    assert list(written.columns) == [fixtures.DATE_COLUMN, *fixtures.SIGNAL_COLUMNS]
+    assert not written.isna().any().any()
 
 
 def test_the_cli_says_the_data_is_invented(tmp_path, capsys):

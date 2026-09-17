@@ -86,7 +86,7 @@ def _security(book: openpyxl.Workbook) -> str:
     """The ``Security`` value from the ``Metadata`` sheet, or "" if absent.
 
     Read from metadata rather than trusted from the filename — the real
-    export that motivated this (``ingest.bloomberg``'s docstring) was named
+    export that motivated this (recorded in ``docs/ingestion-consolidation.md``) was named
     for one security and contained another.
     """
     if METADATA_SHEET not in book.sheetnames:

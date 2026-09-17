@@ -19,9 +19,11 @@ The 0.6745 is the 75th percentile of the standard normal, which puts the median
 absolute deviation on the same scale as a standard deviation, so a score reads
 like a z-score.
 
-**Default threshold: 8.** Per-signal overrides live in `THRESHOLDS` in
-`src/forecasting_engine/quality/outliers.py`; it is currently empty, for reasons
-under *Per-signal thresholds* below.
+**Threshold: 8**, as `MAD_THRESHOLD` in
+`src/forecasting_engine/extraction/validation.py`, applied to every column
+alike. There is no per-signal override; *Per-signal thresholds* below explains
+why one hasn't been added. The threshold itself is on hold pending the sponsor
+(see the 17 Sep sprint plan, Section 0).
 
 ## Why the change, not the level
 
@@ -92,8 +94,11 @@ and each is a genuine observation. On the real data this collapsed 44 flags to
 
 ## Per-signal thresholds
 
-`THRESHOLDS` is deliberately empty. On the real data, `vix` and the credit
-spreads flag two to three times as often as the rest:
+The live implementation applies one threshold to every column, with no
+per-signal override. (An earlier version in `quality/outliers.py` had an empty
+`THRESHOLDS` override table; that module was removed on 17 Sep as a duplicate.)
+On the real data, `vix` and the credit spreads flag two to three times as often
+as the rest:
 
 | Signal | Flags at threshold 8 |
 |---|---|
@@ -106,8 +111,8 @@ spreads flag two to three times as often as the rest:
 That is a real difference in tail thickness, and it is tempting to raise their
 thresholds. It should not be done yet: **every one of those flags was a genuine
 market event**, so there is nothing to suppress. Tuning eight thresholds against
-a single ten-year sample would be fitting noise. Add an entry when a signal earns
-one, and say in the commit which data justified it.
+a single ten-year sample would be fitting noise. Add a per-signal override when
+a signal earns one, and say in the commit which data justified it.
 
 ## What it actually flags
 

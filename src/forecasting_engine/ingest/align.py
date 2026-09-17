@@ -1,9 +1,8 @@
 """FeaturePanel: the lag-safe dataset screening and modelling consume.
 
-Built by align_and_lag() from whatever quality.build.apply_decisions() (or,
-today, the Bloomberg merge) produced. No screening or fitting function
-accepts a bare DataFrame, so there is no type-legal way to run on unlagged
-data.
+Built by align_and_lag() from the committed Bloomberg merge. No screening or
+fitting function accepts a bare DataFrame, so there is no type-legal way to run
+on unlagged data.
 """
 
 from __future__ import annotations

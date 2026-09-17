@@ -1,5 +1,11 @@
 # The data quality report: shared contract and decisions
 
+> **Retired, 17 Sep 2026.** The `quality/` package this document describes was
+> removed in the sprint plan's Phase 3: nothing in the app used it once ingestion
+> moved to the open-schema `extraction/` pipeline. Kept as the record of the
+> cross-ticket decisions FYP-8, 9, 10 and 25 made. The code is in git history
+> at `4a90170`.
+
 `src/forecasting_engine/quality/report.py` is written into by four tickets:
 
 | Ticket | Writes |

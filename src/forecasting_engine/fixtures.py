@@ -21,7 +21,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from forecasting_engine.ingest.schema import DATE_COLUMN
+#: The generator's own column names. They were imported from the fixed
+#: 8-signal contract in ``ingest/schema.py``, which the open-schema decision
+#: retired; they live here now because this generator still produces that shape.
+DATE_COLUMN = "date"
+SIGNAL_COLUMNS: tuple[str, ...] = (
+    "spx_close",
+    "agg_close",
+    "vix",
+    "credit_spread_hy",
+    "credit_spread_ig",
+    "fx_impl_vol",
+    "breakeven_10y",
+    "term_spread",
+)
 
 TRADING_DAYS_PER_YEAR = 252
 

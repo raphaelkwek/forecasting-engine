@@ -2,7 +2,12 @@
 
 import pandas as pd
 
-from forecasting_engine.extraction.validation import _format_failure, schema_errors, validate
+from forecasting_engine.extraction.validation import (
+    _format_failure,
+    _robust_z,
+    schema_errors,
+    validate,
+)
 
 
 def frame(dates, **columns):
@@ -123,3 +128,46 @@ def test_a_timestamp_failure_case_is_shown_as_dd_mm_yyyy_with_no_time():
 
 def test_a_non_date_failure_case_is_shown_as_its_repr():
     assert _format_failure(False) == "False"
+
+
+# --- guards carried over from the retired quality/outliers.py ---------------
+#
+# That module duplicated this one's MAD scoring and is removed in the sprint
+# plan's Phase 3. Its tests were the only ones covering these three behaviours,
+# so they move here, pointed at the implementation that is actually live.
+
+
+def test_a_lone_jump_in_a_stale_feed_is_still_flagged():
+    # More than half the daily changes are zero - a pegged signal or a frozen
+    # feed - so the median absolute deviation is zero. Scaling by it would call
+    # the one real move unremarkable; the mean-absolute-deviation fallback
+    # catches it.
+    values = [5.0] * 20 + [90.0] + [5.0] * 20
+    data = frame(pd.date_range("2024-01-01", periods=len(values)), A_Index_PX_LAST=values)
+
+    report = validate(data)
+
+    assert len(report.big_moves) == 1
+
+
+def test_the_score_is_not_inflated_by_the_outlier_it_is_measuring():
+    # Why MAD and not standard deviation: one huge value drags a standard
+    # deviation up far enough to hide itself.
+    values = pd.Series([1.0, -1.0] * 30 + [200.0])
+    classic = abs((values.iloc[-1] - values.mean()) / values.std())
+
+    assert classic < 8
+    assert abs(_robust_z(values).iloc[-1]) > 8
+
+
+def test_a_crash_of_consecutive_same_direction_moves_is_kept_whole():
+    # Only an opposite-direction rebound is collapsed into its first flag. A
+    # crash is several real days in a row, and each one is kept.
+    before = [100.0, 101.0] * 15
+    after = [40.0, 41.0] * 15
+    values = before + [80.0, 60.0, 40.0] + after
+    data = frame(pd.date_range("2024-01-01", periods=len(values)), A_Index_PX_LAST=values)
+
+    report = validate(data)
+
+    assert len(report.big_moves) == 3
