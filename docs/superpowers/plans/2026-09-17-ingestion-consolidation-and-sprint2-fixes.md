@@ -411,7 +411,7 @@ Make the split structural and explicit, with detection as a convenience.
 Found while checking the horizon/lag/embargo mechanics for correctness — not
 originally in scope, flagging it here rather than changing it unasked:
 
-- [ ] The validation-metrics document requires exactly two horizons, h=1 and
+- [x] The validation-metrics document requires exactly two horizons, h=1 and
       h=5 trading days, **reported separately, never averaged**, with a
       shared embargo equal to the *maximum* label horizon (5 days) — not a
       per-horizon embargo. Today's "Forecast horizon (days)" control on
@@ -419,11 +419,11 @@ originally in scope, flagging it here rather than changing it unasked:
       5), and embargo defaults to whatever horizon is currently typed in
       (`embargo = int(horizon)`) — so picking h=1 today also silently drops
       embargo to 1, which doesn't match the spec.
-- [ ] Replace the free horizon input with a choice of exactly "1 day" / "5
+- [x] Replace the free horizon input with a choice of exactly "1 day" / "5
       days," **defaulting to 5 days**. Fix embargo at a constant 5 regardless
       of which horizon is selected, rather than deriving it from the selected
       horizon.
-- [ ] Signal lag stays a fixed 1 trading day by default, per spec — this is
+- [x] Signal lag stays a fixed 1 trading day by default, per spec — this is
       already correct (`lag_days` defaults to 1 and is independent of
       horizon); no change needed to the default. **Do** change how it's
       presented: there is no legitimate reason to run production with lag
@@ -444,17 +444,17 @@ originally in scope, flagging it here rather than changing it unasked:
 **Files:** `app/app_pages/2_Signals.py` (delete), `app/Home.py` (remove from
 navigation), `app/app_pages/4_Models.py` (add the replacement view)
 
-- [ ] Delete `app/app_pages/2_Signals.py` and its entry in `app/Home.py`'s
+- [x] Delete `app/app_pages/2_Signals.py` and its entry in `app/Home.py`'s
       `st.navigation`. Rationale: it runs one full-history rank-IC screen
       with no train/test split — a different, more optimistic computation
       than the per-fold screening the harness actually performs for ML and
       Derived-Polynomial — and showing both, unlabelled, misleads a reader
       into thinking they're the same number.
-- [ ] `src/forecasting_engine/features/screening.py` is **not** dead —
+- [x] `src/forecasting_engine/features/screening.py` is **not** dead —
       `screen_over_folds()` is actively used by
       `validation/harness.py::evaluate(..., screen=True)`. Only the page
       goes, not the module.
-- [ ] Add, next to the existing fitted-terms/SHAP table on the Models page
+- [x] Add, next to the existing fitted-terms/SHAP table on the Models page
       (meaningful only when `screen=True` is used, i.e. ML and Derived-
       Polynomial): a small table of each signal against how many of the
       walk-forward folds included it (e.g. "vix: 8/8", "fx_impl_vol: 0/8").
@@ -467,7 +467,7 @@ navigation), `app/app_pages/4_Models.py` (add the replacement view)
       if the two computations ever drift apart; reusing the exact value
       `evaluate()` already produced guarantees the displayed table matches
       reality.
-- [ ] Retire test coverage specific to the deleted page; add coverage for the
+- [x] Retire test coverage specific to the deleted page; add coverage for the
       new per-fold inclusion summary.
 
 ---
@@ -516,7 +516,7 @@ Verify current status in code before starting each — Jira may be stale
 
 ---
 
-## Progress log — what was actually done (as of 18 Sep)
+## Progress log — what was actually done (as of 18 Sep, after Phase 4.3)
 
 The build didn't follow the phase numbers. This records what landed, what was
 done that the plan didn't ask for, and what's still open.
@@ -540,6 +540,23 @@ done that the plan didn't ask for, and what's still open.
   holds the salvaged ticker → target-role mapping. The MAD guards moved onto the
   live `extraction/validation.py`. Retired design docs are marked as records,
   not rewritten; the removed code is recoverable at `4a90170`.
+- **Phase 5, `2d2eef2`.** The Signals page and its nav entry are gone. Models
+  shows per-fold signal inclusion for derived-polynomial and ML runs. **Tests:
+  253 → 267.** Deviates from the plan's `screened_signals` tuple: `evaluate()`
+  falls back to every signal when screening keeps none, and the table must show
+  a signal no fold used as 0/N, so `FoldResult.screening` records the candidates
+  and what was kept, and derives what was fit. The fold is built from that same
+  record, so the table can't drift from the fit. `run_screening` has no caller
+  left; the plan keeps the screening module, so it is left for the team.
+- **Phase 4.3, `036768a`.** Horizon is a required choice of 1 or 5 days
+  (default 5); embargo is a constant 5 (`max(HORIZONS)`), no longer an input;
+  lag lives in an "Advanced: lag-shift audit" section. **Tests: 267 → 274.** The
+  embargo test captures what `PurgedWalkForward` is really built with and fails
+  on the old `embargo = horizon`.
+
+**Checks after Phase 4.3:** `uv run pytest` shows 274 passed and `uv run ruff
+check .` passes. Phase 5 was run end to end on four real exports (124 folds, the
+inclusion table renders); Phase 4.3's controls were checked in the browser.
 
 **Checks after Phase 3:** `uv run pytest` shows 253 passed and
 `uv run ruff check .` passes. All five pages render in the browser with no
@@ -549,11 +566,9 @@ polynomial fits, and no training label reaches its test window across 123 folds
 on the app's defaults. That run also covers Phase 1's manual check, which was
 previously outstanding.
 
-**Not started:** Phase 5 (`2_Signals.py` is still in the nav, and there's no
-`FoldResult.screened_signals`), 4.3 (horizon is still a free `number_input`,
-and embargo still follows it), 4.1 (split target and signal uploads), Phase 2
-(auto forward-fill; `gap_decisions_*` and "Clean all" are still there), 4.2
-(target-aware Models and Model Metrics), and Phase 6.
+**Not started:** 4.1 (split target and signal uploads), Phase 2 (auto
+forward-fill, signals only; `gap_decisions_*` and "Clean all" are still there),
+4.2 (target-aware Models and Model Metrics), and Phase 6.
 
 **Found along the way, for the team — not fixed, outside this plan:**
 
@@ -564,6 +579,13 @@ and embargo still follows it), 4.1 (split target and signal uploads), Phase 2
   settings) and no training label leaks. The likely cause is fitting raw price
   *levels*, which trend, inside short 120-day windows. Worth checking before any
   IC is shown to the sponsor.
+- **The target's own sibling field is screened in as a signal.** With SPX as
+  the target, `SPX_Index_PX_BID` — the same index's bid price — was fit on in
+  118 of 124 folds. This is the leak Phase 4.1's structural target/signal split
+  removes, now visible in the Phase 5 table.
+- **Screening barely filters.** On 120-day windows almost every signal passes
+  `INCLUSION_THRESHOLD = 0.02` in about 95% of folds. The threshold is blocked in
+  Section 0; recorded as evidence for that decision.
 - **`fixtures.py` output is mislabelled by the live pipeline.** It writes a flat
   fixed-contract CSV with no `Security` metadata, so every column comes back
   prefixed with the filename. Same root cause as deferred Task 1.3.
