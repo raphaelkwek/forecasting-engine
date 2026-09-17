@@ -12,7 +12,7 @@ import streamlit as st
 import ui
 from forecasting_engine.reporting.model_metrics import Cell, build_metrics_rows
 
-#: Matches app_pages/4_Models.py's result-key constants — duplicated rather than
+#: Matches app_pages/3_Models.py's result-key constants — duplicated rather than
 #: imported because a page filename starting with a digit isn't a valid Python
 #: module name.
 POLYNOMIAL_RESULT_KEY = "polynomial_result"

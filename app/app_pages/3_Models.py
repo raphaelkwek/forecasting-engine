@@ -35,7 +35,7 @@ from forecasting_engine.reporting.model_metrics import ModelRunResult
 from forecasting_engine.validation.splitters import PurgedWalkForward
 
 #: Where each model family's latest result is parked for the Model Metrics page.
-#: Duplicated as a matching constant in app_pages/3_Model_Metrics.py — a page
+#: Duplicated as a matching constant in app_pages/4_Model_Metrics.py — a page
 #: filename starting with a digit isn't a valid Python module name, so it can't
 #: be imported from there.
 POLYNOMIAL_RESULT_KEY = "polynomial_result"
