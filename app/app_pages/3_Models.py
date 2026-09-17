@@ -31,7 +31,16 @@ from forecasting_engine.models.polynomial import (
     run_derived_polynomial,
     run_user_polynomial,
 )
+from forecasting_engine.reporting.factor_labels import labeller
 from forecasting_engine.reporting.model_metrics import ModelRunResult
+from forecasting_engine.reporting.polynomial_function import (
+    Origin,
+    PolynomialFunction,
+    dataset_fingerprint,
+    from_description,
+    term_rows,
+    to_latex,
+)
 from forecasting_engine.validation.splitters import PurgedWalkForward
 
 #: Where each model family's latest result is parked for the Model Metrics page.
@@ -44,6 +53,8 @@ FAMAFRENCH_RESULT_KEY = "famafrench_result"
 FAMAFRENCH_DESCRIPTION_KEY = "famafrench_description"
 ML_RESULT_KEY = "ml_result"
 ML_DESCRIPTION_KEY = "ml_description"
+#: The polynomial last run, as ``(PolynomialFunction, dataset_fingerprint)``.
+POLYNOMIAL_FUNCTION_KEY = "polynomial_function"
 
 #: The forecast horizons the validation framework asks for, reported separately
 #: and never averaged.
@@ -131,6 +142,7 @@ splitter = PurgedWalkForward(train=int(train), test=int(test), embargo=EMBARGO_D
 
 result: ModelRunResult | None = None
 description: ModelDescription | None = None
+origin: Origin | None = None
 
 if family == "Polynomial":
     result_key, description_key = POLYNOMIAL_RESULT_KEY, POLYNOMIAL_DESCRIPTION_KEY
@@ -160,6 +172,7 @@ if family == "Polynomial":
         if st.button("Apply", type="primary") and formula:
             try:
                 result, description = run_user_polynomial(formula, panel, splitter)
+                origin = Origin.USER_SUPPLIED
             except PolynomialConfigError as exc:
                 st.error(str(exc))
     else:
@@ -183,6 +196,7 @@ if family == "Polynomial":
                     result, description = run_derived_polynomial(
                         panel, splitter, candidates=candidates
                     )
+                    origin = Origin.DERIVED
                 except PolynomialConfigError as exc:
                     st.error(str(exc))
 
@@ -246,9 +260,63 @@ else:
             except BoostedConfigError as exc:
                 st.error(str(exc))
 
+def _show_fitted_terms(description: ModelDescription, *, is_ml: bool) -> None:
+    value_col = "Mean |SHAP value|" if is_ml else "Coefficient"
+    st.markdown(
+        ui.eyebrow("Feature attribution (SHAP)" if is_ml else "Fitted terms"),
+        unsafe_allow_html=True,
+    )
+    if description.terms:
+        rows = [
+            {"Term": term, value_col: coefficient}
+            for term, coefficient in zip(description.terms, description.coefficients, strict=True)
+        ]
+        if description.intercept is not None:
+            rows.append({"Term": "(intercept)", value_col: description.intercept})
+        st.dataframe(rows, width="stretch", hide_index=True)
+    else:
+        st.caption("No terms survived fitting — every coefficient was regularized to zero.")
+
+
+def _show_polynomial_function(fn: PolynomialFunction, fingerprint: tuple) -> None:
+    """The fitted polynomial as a labelled equation and term table."""
+    label = labeller(numeric_cols)
+    st.subheader(fn.origin)
+    st.caption(f"Forecasts: {label(fn.target)}, {fn.horizon}-day return")
+    if fingerprint != dataset_fingerprint(merged):
+        st.warning("Fitted on a previous dataset. Run again to update.")
+    elif fn.target != price_col or fn.horizon != int(horizon):
+        st.warning(
+            f"Fitted for {label(fn.target)}, {fn.horizon}-day return. The inputs above "
+            "have changed, so run again to update."
+        )
+    st.latex(to_latex(fn, label))
+    if fn.formula is not None:
+        st.caption(
+            "This function can't be written as separate terms and exponents (it divides "
+            "by a signal, or expands to more than 50 terms), so it's shown as entered."
+        )
+        return
+    if not fn.terms and fn.origin == Origin.DERIVED:
+        st.caption("No terms survived fitting — every coefficient was regularized to zero.")
+    st.dataframe(term_rows(fn, label), width="stretch", hide_index=True)
+
+
 if result is not None and description is not None:
     st.session_state[result_key] = result
     st.session_state[description_key] = description
+    if origin is not None:
+        # Saved in the same rerun as the run, so the function shown below is
+        # always the one just fitted. A failed run saves nothing and leaves the
+        # previous function in place.
+        fn = from_description(
+            description,
+            origin=origin,
+            target=price_col,
+            horizon=int(horizon),
+            columns=panel.signals,
+        )
+        st.session_state[POLYNOMIAL_FUNCTION_KEY] = (fn, dataset_fingerprint(merged))
     st.success("Run complete — see Model Metrics for the full comparison.")
 
 if result_key in st.session_state:
@@ -275,22 +343,10 @@ if result_key in st.session_state:
         f"({crash.n_true_tail_days} true tail day(s) in the walk-forward test windows)."
     )
 
-    is_ml = family == "Machine Learning"
-    value_col = "Mean |SHAP value|" if is_ml else "Coefficient"
-    st.markdown(
-        ui.eyebrow("Feature attribution (SHAP)" if is_ml else "Fitted terms"),
-        unsafe_allow_html=True,
-    )
-    if description.terms:
-        rows = [
-            {"Term": term, value_col: coefficient}
-            for term, coefficient in zip(description.terms, description.coefficients, strict=True)
-        ]
-        if description.intercept is not None:
-            rows.append({"Term": "(intercept)", value_col: description.intercept})
-        st.dataframe(rows, width="stretch", hide_index=True)
+    if family == "Polynomial" and POLYNOMIAL_FUNCTION_KEY in st.session_state:
+        _show_polynomial_function(*st.session_state[POLYNOMIAL_FUNCTION_KEY])
     else:
-        st.caption("No terms survived fitting — every coefficient was regularized to zero.")
+        _show_fitted_terms(description, is_ml=family == "Machine Learning")
 
     # Only runs that screen per fold (derived polynomial, machine learning) have
     # this. getattr, not attribute access: a result kept in session state from

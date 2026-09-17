@@ -14,6 +14,11 @@ from streamlit.testing.v1 import AppTest
 
 from forecasting_engine.models.base import ModelDescription
 from forecasting_engine.reporting.model_metrics import ModelRunResult, ScreeningSummary
+from forecasting_engine.reporting.polynomial_function import (
+    Origin,
+    dataset_fingerprint,
+    from_description,
+)
 from forecasting_engine.validation.crash import CrashDiagnostics
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -192,3 +197,116 @@ def test_signal_lag_lives_in_the_advanced_audit_section_not_the_main_row():
 
     everywhere = [n for n in app.number_input if n.label == "Signal lag (days)"]
     assert len(everywhere) == 1, "the lag control should exist only inside the audit section"
+
+
+# --- the fitted polynomial as a labelled function ----------------------------
+
+DERIVED = ModelDescription(
+    name="DerivedPolynomial",
+    terms=("VIX_Index_PX_LAST^2", "LUACOAS_Index_PX_LAST VIX_Index_PX_LAST"),
+    coefficients=(0.0004521, -0.000231),
+    intercept=0.001234,
+)
+
+
+def _function_page(
+    *, target: str = "SPX_Index_PX_LAST", horizon: int = 5, frame: pd.DataFrame | None = None
+) -> AppTest:
+    """A page holding a stored derived function, fitted for ``target``/``horizon`` on
+    ``frame`` (the committed data, by default)."""
+    committed = _committed()
+    fn = from_description(DERIVED, origin=Origin.DERIVED, target=target, horizon=horizon)
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = committed
+    app.session_state["polynomial_result"] = _result(None)
+    app.session_state["polynomial_description"] = DERIVED
+    app.session_state["polynomial_function"] = (
+        fn,
+        dataset_fingerprint(committed if frame is None else frame),
+    )
+    return app.run()
+
+
+def _terms_table(app: AppTest) -> pd.DataFrame:
+    return next(d.value for d in app.dataframe if "Exponent" in d.value.columns)
+
+
+def test_a_stored_derived_function_is_headed_as_derived():
+    app = _function_page()
+
+    assert not app.exception
+    assert [s.value for s in app.subheader].count("Derived Function") == 1
+
+
+def test_the_function_says_what_it_forecasts():
+    assert "Forecasts: S&P 500, 5-day return" in _captions(_function_page())
+
+
+def test_the_equation_is_typeset_with_labels():
+    (latex,) = [lx.value for lx in _function_page().latex]
+    assert r"\hat{y} = 0.001234 + 0.0004521" in latex
+    assert r"\text{VIX}^{2}" in latex
+
+
+def test_the_term_table_uses_labels_not_raw_column_codes():
+    table = _terms_table(_function_page())
+
+    assert table["Factor"].tolist() == ["(intercept)", "VIX", "US IG credit spread × VIX"]
+    assert table["Coefficient"].tolist() == ["0.001234", "0.0004521", "−0.0002310"]
+    assert not table.astype(str).apply(lambda col: col.str.contains("_Index_")).any().any()
+
+
+def test_the_raw_fitted_terms_table_is_replaced():
+    app = _function_page()
+    assert "Fitted terms" not in _markdown(app)
+    assert all("Term" not in d.value.columns for d in app.dataframe)
+
+
+def test_a_current_function_has_no_stale_warning():
+    assert not _function_page().warning
+
+
+def test_a_function_for_another_horizon_is_flagged_stale():
+    (warning,) = _function_page(horizon=1).warning
+    assert warning.value == (
+        "Fitted for S&P 500, 1-day return. The inputs above have changed, so run again "
+        "to update."
+    )
+
+
+def test_a_function_for_another_target_is_flagged_stale():
+    (warning,) = _function_page(target="VIX_Index_PX_LAST").warning
+    assert warning.value.startswith("Fitted for VIX, 5-day return.")
+
+
+def test_a_function_fitted_on_other_data_is_flagged_stale_first():
+    other = _committed().iloc[:-1]
+    (warning,) = _function_page(horizon=1, frame=other).warning
+    assert warning.value == "Fitted on a previous dataset. Run again to update."
+
+
+def test_a_result_without_a_stored_function_still_renders():
+    # A session from before this change holds a result but no function.
+    app = _page(None)
+
+    assert not app.exception
+    assert app.metric
+    assert "Derived Function" not in [s.value for s in app.subheader]
+
+
+def test_applying_a_formula_replaces_the_stored_derived_function():
+    app = _function_page()
+    (mode,) = [r for r in app.radio if r.label == "Function source"]
+    mode.set_value("Enter a function").run()
+    (formula,) = [t for t in app.text_input if t.label.startswith("Function")]
+    formula.set_value("2 * VIX_Index_PX_LAST + LUACOAS_Index_PX_LAST ** 2").run()
+    (apply,) = [b for b in app.button if b.label == "Apply"]
+    apply.click().run()
+
+    assert not app.exception
+    assert not app.error
+    headings = [s.value for s in app.subheader]
+    assert "User-Supplied Function" in headings
+    assert "Derived Function" not in headings
+    assert _terms_table(app)["Factor"].tolist() == ["VIX", "US IG credit spread"]
+    assert not app.warning
