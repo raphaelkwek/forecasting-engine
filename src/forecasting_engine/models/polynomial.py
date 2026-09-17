@@ -304,6 +304,8 @@ def run_derived_polynomial(
     a signal below FYP-102's inclusion threshold, judged on that fold's own
     train window, is left out of that fold's fit.
     """
+    if not candidates:
+        raise PolynomialConfigError("deriving a function needs at least one candidate.")
     per_candidate = {
         f"degree{c.degree}_{c.regularizer}": evaluate(
             lambda c=c: DerivedPolynomial(c.degree, c.regularizer, c.max_terms),
@@ -314,6 +316,12 @@ def run_derived_polynomial(
         for c in candidates
     }
     _require_folds(next(iter(per_candidate.values()), ()))
+    if len(per_candidate) == 1:
+        # PBO asks how often the best of several configurations was luck. One
+        # configuration was never chosen from anything, so it reports no PBO
+        # rather than failing inside CSCV.
+        (only_folds,) = per_candidate.values()
+        return summarize(only_folds, pbo=None)
     best_name, pbo_value = select_best_candidate(per_candidate, n_blocks=n_blocks)
     return summarize(per_candidate[best_name], pbo=pbo_value)
 

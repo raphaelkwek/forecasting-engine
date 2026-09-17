@@ -55,6 +55,23 @@ class ScreeningSummary:
 
 
 @dataclass(frozen=True)
+class FoldTerms:
+    """How many of a run's folds ended with any term at all.
+
+    A regularized fit can zero every coefficient on one fold and keep several on
+    the next, and a run reports only its most recent fold's equation. Without
+    this count that one equation reads as the whole run's answer.
+    """
+
+    folds: int
+    with_terms: int
+
+    @property
+    def every_fold(self) -> bool:
+        return self.with_terms == self.folds
+
+
+@dataclass(frozen=True)
 class ModelRunResult:
     """One model family's completed run. ``pbo`` is ``None`` for FF5 (no
     configuration search) — also the signal that row skips the gate badge."""
@@ -68,6 +85,9 @@ class ModelRunResult:
     """Per-fold signal inclusion, or ``None`` for a run that didn't screen (FF5, a
     user-supplied formula): those are handed their features and have nothing to
     filter."""
+    terms: FoldTerms | None = None
+    """How many folds kept any term. ``None`` only on a result built before this
+    field existed (one parked in session state by an older run)."""
 
 
 def build_metrics_rows(

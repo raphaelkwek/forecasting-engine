@@ -8,7 +8,9 @@ from forecasting_engine.models.polynomial import (
     DerivedPolynomial,
     PolynomialConfigError,
     UserPolynomial,
+    run_derived_polynomial,
 )
+from forecasting_engine.validation.splitters import PurgedWalkForward
 
 
 def _formula_panel(n: int = 10) -> FeaturePanel:
@@ -202,3 +204,26 @@ def test_derived_polynomial_reports_coefficients_in_the_signals_own_units():
         rebuilt = rebuilt + coefficient * product
 
     np.testing.assert_allclose(rebuilt, model.predict(panel, idx), rtol=1e-9, atol=1e-12)
+
+
+def test_deriving_from_one_candidate_reports_no_pbo_rather_than_crashing():
+    # PBO measures how often the best of several configurations was luck, so a
+    # single configuration has nothing to compare against — the same "no
+    # configuration search" case FF5 and a user formula report.
+    panel = _linear_panel(n=120)
+    splitter = PurgedWalkForward(train=40, test=10, embargo=2)
+
+    result, description = run_derived_polynomial(
+        panel, splitter, candidates=(DerivedPolynomial(degree=1),)
+    )
+
+    assert result.pbo is None
+    assert description.name == "DerivedPolynomial"
+
+
+def test_deriving_with_no_candidates_says_so_in_plain_words():
+    panel = _linear_panel(n=120)
+    splitter = PurgedWalkForward(train=40, test=10, embargo=2)
+
+    with pytest.raises(PolynomialConfigError, match="at least one"):
+        run_derived_polynomial(panel, splitter, candidates=())

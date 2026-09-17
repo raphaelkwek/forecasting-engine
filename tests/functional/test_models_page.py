@@ -13,7 +13,11 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from forecasting_engine.models.base import ModelDescription
-from forecasting_engine.reporting.model_metrics import ModelRunResult, ScreeningSummary
+from forecasting_engine.reporting.model_metrics import (
+    FoldTerms,
+    ModelRunResult,
+    ScreeningSummary,
+)
 from forecasting_engine.reporting.polynomial_function import (
     Origin,
     dataset_fingerprint,
@@ -310,3 +314,61 @@ def test_applying_a_formula_replaces_the_stored_derived_function():
     assert "Derived Function" not in headings
     assert _terms_table(app)["Factor"].tolist() == ["VIX", "US IG credit spread"]
     assert not app.warning
+
+
+# --- how typical the shown equation is of the whole run ----------------------
+
+
+def _page_with_terms(with_terms: int, folds: int = 10, description=DERIVED) -> AppTest:
+    committed = _committed()
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = committed
+    app.session_state["polynomial_result"] = ModelRunResult(
+        ic=0.05,
+        oos_rank_ic=0.04,
+        rmse=0.01,
+        pbo=0.3,
+        crash=CrashDiagnostics(recall=0.5, precision=0.5, f1=0.5, n_true_tail_days=4),
+        terms=FoldTerms(folds=folds, with_terms=with_terms),
+    )
+    app.session_state["polynomial_description"] = description
+    app.session_state["polynomial_function"] = (
+        from_description(
+            description, origin=Origin.DERIVED, target="SPX_Index_PX_LAST", horizon=5
+        ),
+        dataset_fingerprint(committed),
+    )
+    return app.run()
+
+
+def test_a_run_whose_folds_mostly_kept_nothing_says_so():
+    app = _page_with_terms(with_terms=4, folds=10)
+
+    assert not app.exception
+    assert "4 of 10 walk-forward folds kept any term at all" in _captions(app)
+    assert "most recent fold's fit" in _captions(app)
+
+
+def test_a_run_where_every_fold_kept_terms_says_that_instead():
+    app = _page_with_terms(with_terms=10, folds=10)
+
+    assert "Every one of the 10 walk-forward folds kept at least one term." in _captions(app)
+    assert "kept any term at all" not in _captions(app)
+
+
+def test_an_older_result_without_the_count_still_renders():
+    # A result parked in session state before this field existed.
+    app = _page(None)
+
+    assert not app.exception
+    assert "walk-forward folds kept" not in _captions(app)
+
+
+def test_an_empty_equation_still_explains_itself():
+    empty = ModelDescription(
+        name="DerivedPolynomial", terms=(), coefficients=(), intercept=0.002
+    )
+    app = _page_with_terms(with_terms=3, folds=10, description=empty)
+
+    assert "No terms survived fitting" in _captions(app)
+    assert "3 of 10 walk-forward folds kept any term at all" in _captions(app)

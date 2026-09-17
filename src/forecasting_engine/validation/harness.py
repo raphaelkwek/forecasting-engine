@@ -29,7 +29,11 @@ import pandas as pd
 from forecasting_engine.features.screening import screen_over_folds
 from forecasting_engine.ingest.align import FeaturePanel
 from forecasting_engine.models.base import Forecaster, ModelDescription
-from forecasting_engine.reporting.model_metrics import ModelRunResult, ScreeningSummary
+from forecasting_engine.reporting.model_metrics import (
+    FoldTerms,
+    ModelRunResult,
+    ScreeningSummary,
+)
 from forecasting_engine.validation import metrics
 from forecasting_engine.validation.crash import (
     CrashDiagnostics,
@@ -167,6 +171,9 @@ def summarize(
         pbo=pbo,
         crash=_crash_over_folds(folds),
         screening=_screening_summary(folds),
+        terms=FoldTerms(
+            folds=len(folds), with_terms=sum(1 for f in folds if f.description.terms)
+        ),
     )
     # FYP-122's "deliverable artifact": the most recent fold's fitted terms
     # and coefficients — a fit can pick different terms fold to fold, so this

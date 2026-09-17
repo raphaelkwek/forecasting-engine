@@ -33,7 +33,7 @@ from forecasting_engine.models.polynomial import (
     run_user_polynomial,
 )
 from forecasting_engine.reporting.factor_labels import labeller
-from forecasting_engine.reporting.model_metrics import ModelRunResult
+from forecasting_engine.reporting.model_metrics import FoldTerms, ModelRunResult
 from forecasting_engine.reporting.polynomial_function import (
     Origin,
     PolynomialFunction,
@@ -273,6 +273,26 @@ else:
             except BoostedConfigError as exc:
                 st.error(str(exc))
 
+def _show_fold_term_count(fn: PolynomialFunction, terms: FoldTerms | None) -> None:
+    """Say how typical this fold's equation is of the run.
+
+    A derived fit is refitted per fold and regularization can zero every
+    coefficient on one fold and keep several on the next. The equation above is
+    the most recent fold's, so on its own it reads as the whole run's answer.
+    """
+    if not fn.terms:
+        st.caption("No terms survived fitting — every coefficient was regularized to zero.")
+    if terms is None or terms.folds <= 1:
+        return
+    if terms.every_fold:
+        st.caption(f"Every one of the {terms.folds} walk-forward folds kept at least one term.")
+    else:
+        st.caption(
+            f"{terms.with_terms} of {terms.folds} walk-forward folds kept any term at all. "
+            "The equation above is the most recent fold's fit, not an average of them."
+        )
+
+
 def _show_fitted_terms(description: ModelDescription, *, is_ml: bool) -> None:
     value_col = "Mean |SHAP value|" if is_ml else "Coefficient"
     heading = "Feature attribution (SHAP)" if is_ml else "Fitted terms"
@@ -289,7 +309,9 @@ def _show_fitted_terms(description: ModelDescription, *, is_ml: bool) -> None:
         st.caption("No terms survived fitting — every coefficient was regularized to zero.")
 
 
-def _show_polynomial_function(fn: PolynomialFunction, fingerprint: tuple) -> None:
+def _show_polynomial_function(
+    fn: PolynomialFunction, fingerprint: tuple, terms: FoldTerms | None
+) -> None:
     """The fitted polynomial as a labelled equation and term table."""
     label = labeller(numeric_cols)
     st.subheader(fn.origin, help=glossary.term("Fitted terms"))
@@ -308,8 +330,8 @@ def _show_polynomial_function(fn: PolynomialFunction, fingerprint: tuple) -> Non
             "by a signal, or expands to more than 50 terms), so it's shown as entered."
         )
         return
-    if not fn.terms and fn.origin == Origin.DERIVED:
-        st.caption("No terms survived fitting — every coefficient was regularized to zero.")
+    if fn.origin == Origin.DERIVED:
+        _show_fold_term_count(fn, terms)
     st.dataframe(
         term_rows(fn, label),
         width="stretch",
@@ -378,7 +400,9 @@ if result_key in st.session_state:
     )
 
     if family == "Polynomial" and POLYNOMIAL_FUNCTION_KEY in st.session_state:
-        _show_polynomial_function(*st.session_state[POLYNOMIAL_FUNCTION_KEY])
+        _show_polynomial_function(
+            *st.session_state[POLYNOMIAL_FUNCTION_KEY], getattr(result, "terms", None)
+        )
     else:
         _show_fitted_terms(description, is_ml=family == "Machine Learning")
 

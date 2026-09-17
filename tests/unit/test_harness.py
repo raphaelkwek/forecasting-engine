@@ -3,7 +3,12 @@ import pandas as pd
 from forecasting_engine.ingest.align import FeaturePanel
 from forecasting_engine.models.base import ModelDescription
 from forecasting_engine.validation import metrics
-from forecasting_engine.validation.harness import evaluate, select_best_candidate, summarize
+from forecasting_engine.validation.harness import (
+    FoldResult,
+    evaluate,
+    select_best_candidate,
+    summarize,
+)
 from forecasting_engine.validation.splitters import PurgedWalkForward
 
 
@@ -331,3 +336,51 @@ def test_there_is_no_screening_summary_without_screening():
     folds = evaluate(_SignalRecordingForecaster, _strong_and_flat(), PurgedWalkForward(30, 5, 2))
     result, _ = summarize(folds)
     assert result.screening is None
+
+
+# --- how many folds actually fitted terms -----------------------------------
+
+
+def _fold_with_description(i: int, description: ModelDescription) -> FoldResult:
+    idx = pd.date_range("2024-01-01", periods=6, freq="D")
+    train, test = idx[:4], idx[4:]
+    return FoldResult(
+        fold=i,
+        train=train,
+        test=test,
+        predicted=pd.Series([0.1, 0.2], index=test),
+        predicted_train=pd.Series(0.1, index=train),
+        realised=pd.Series([0.1, 0.3], index=test),
+        realised_train=pd.Series(0.2, index=train),
+        description=description,
+    )
+
+
+def test_summarize_counts_the_folds_whose_fit_kept_any_term():
+    # A regularized fit can zero every coefficient on one fold and keep five on
+    # the next, and ``summarize`` reports only the most recent fold's equation.
+    # The count is what stops that one equation being read as the whole run.
+    folds = tuple(
+        _fold_with_description(
+            i, ModelDescription(name="DerivedPolynomial", terms=terms, coefficients=coefs)
+        )
+        for i, (terms, coefs) in enumerate([(("x",), (1.0,)), ((), ()), (("x",), (2.0,))])
+    )
+
+    result, _ = summarize(folds)
+
+    assert result.terms is not None
+    assert (result.terms.folds, result.terms.with_terms) == (3, 2)
+
+
+def test_a_run_where_every_fold_kept_terms_says_so():
+    folds = tuple(
+        _fold_with_description(
+            i, ModelDescription(name="FamaFrench5", terms=("MKT",), coefficients=(0.5,))
+        )
+        for i in range(4)
+    )
+
+    result, _ = summarize(folds)
+
+    assert (result.terms.folds, result.terms.with_terms) == (4, 4)
