@@ -57,7 +57,7 @@ def test_the_parsed_frame_carries_every_column_through(in_a_scratch_workspace):
 @pytest.mark.parametrize(
     ("filename", "data", "expected"),
     [
-        ("book.xlsx", SIGNALS_CSV, FileTypeError),
+        ("book.xls", SIGNALS_CSV, FileTypeError),
         ("disguised.csv", b"PK\x03\x04" + bytes(range(256)), CsvParseError),
         ("huge.csv", b"a,b\n" + b"1,2\n" * (MAX_UPLOAD_BYTES // 4), FileSizeError),
     ],

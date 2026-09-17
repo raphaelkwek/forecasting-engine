@@ -97,48 +97,59 @@ in full before starting anything.
 **Goal:** the Data page accepts either format for a Bloomberg export, both
 merging into the same shape the rest of the pipeline already consumes.
 
-### Task 1.1 — an xlsx reader for the freeform (open-schema) pipeline
+### Task 1.1 — an xlsx reader for the freeform (open-schema) pipeline — DONE
 
-- [ ] Add an xlsx reader alongside `extraction/bloomberg_csv.py` (e.g.
-      `extraction/bloomberg_xlsx.py`) that produces the same
+- [x] Added `extraction/bloomberg_xlsx.py`, producing the same
       `BloombergCsvExport`-shaped result (`filename`, `security`, `frame` with
-      `Date` + `{label}_{field}` columns) — not the fixed-contract shape
-      `ingest/bloomberg.py` currently produces, since we've decided to stay
-      open-schema.
-- [ ] Don't write the xlsx-parsing logic from scratch, but don't reuse
-      `ingest/bloomberg.py::read_export()` wholesale either — it extracts one
-      *named field* into a single series, whereas the open-schema shape needs
-      every field column in the sheet turned into a multi-column frame (like
-      `extraction/bloomberg_csv.py::read_export()` does for CSV). The field
-      extraction itself needs rewriting for that reason. What genuinely is
-      reusable, because it has nothing to do with the fixed contract: workbook
-      opening/corrupt-file handling, `_security()` (reading the `Security`
-      value off the `Metadata` sheet), and `dedupe_dates()`. Pull those three
-      into the new reader (move them to a shared location, or import them —
-      either is fine) rather than re-implementing them.
-- [ ] **Resolved: once this task is done, `ingest/bloomberg.py`,
-      `ingest/workbook.py`, and the `convert.py` CLI are retired in Phase 3.**
-      Everything else in them exists only to serve the fixed 8-column
-      contract, which is no longer used. The one thing to pull out before
-      deleting the module is `TICKER_MAP`'s mapping table itself (not the
-      surrounding module) — Phase 4 needs it.
-- [ ] `openpyxl` is already a dependency (`pyproject.toml`) — nothing to add.
-- [ ] Unit tests mirroring `tests/unit/test_extraction_bloomberg_csv.py`'s
-      structure for the new reader.
+      `Date` + `{label}_{field}` columns, now also `notes`) — not the
+      fixed-contract shape `ingest/bloomberg.py` produced.
+- [x] Ported (not imported) the three contract-independent pieces from
+      `ingest/bloomberg.py`: workbook opening/corrupt-file handling,
+      `_security()`, and a frame-level analog of `dedupe_dates()` (adapted to
+      dedupe a whole row at once, since a workbook's `Data` sheet has every
+      field for a date on one row, not one series per field). Ported directly
+      into the new module rather than importing from `ingest/bloomberg.py`,
+      since that module is retired in Phase 3 — importing from it first would
+      have meant undoing the import later. `label()` in
+      `extraction/bloomberg_csv.py` was made public (renamed from `_label`)
+      so both readers share it.
+- [x] Also added: numeric coercion per field column (`pd.to_numeric(...,
+      errors="coerce")`) — reading raw cell values via `openpyxl` doesn't get
+      `pd.read_csv()`'s automatic NA-string handling for free, so Bloomberg's
+      `#N/A N/A` placeholder needed explicit handling to avoid every
+      placeholder cell being reported as a schema/type error downstream.
+- [x] `ingest/bloomberg.py`, `ingest/workbook.py`, `convert.py` **not yet
+      deleted** — that happens in Phase 3, after `TICKER_MAP` is relocated
+      for Phase 4's use.
+- [x] `openpyxl` already a dependency — nothing added.
+- [x] `tests/unit/test_extraction_bloomberg_xlsx.py` — 8 tests: security from
+      metadata not filename, every field kept (not just one), placeholder →
+      NaN, missing Data sheet refused, missing Metadata tolerated, repeated
+      date deduped with a note, dates parsed as real datetimes, a non-zip
+      file refused without crashing.
 
-### Task 1.2 — wire both formats into the upload UI
+### Task 1.2 — wire both formats into the upload UI — DONE
 
-- [ ] `ingest/upload.py::check_extension()` currently only accepts `.csv`
-      (raises `FileTypeError` otherwise, line ~81-87) — extend to accept
-      `.xlsx` too.
-- [ ] `app/bloomberg_extraction_panel.py`'s per-file loop (around line 92-114)
-      always calls `bloomberg_csv.read_export()` today — branch on file
-      extension and call the new xlsx reader for `.xlsx` files. Both readers
-      must return the same shape so `merge()` needs no changes.
-- [ ] Update the uploader's caption/help text and `docs/bloomberg-exports.md`
-      to describe both accepted formats.
-- [ ] Extend `tests/functional/test_bloomberg_extraction_page.py` to cover an
-      xlsx upload end to end.
+- [x] `ingest/upload.py::check_extension()` now accepts `.csv` and `.xlsx`;
+      error message names both accepted extensions.
+- [x] `app/bloomberg_extraction_panel.py`'s per-file loop branches on
+      extension (`.xlsx` → `bloomberg_xlsx.read_export`, else
+      `bloomberg_csv.read_export`); both exception types caught together.
+      `st.file_uploader`'s `type` param now set to `["csv", "xlsx"]`
+      (previously `None`) for the native picker/filter UI benefit.
+- [x] Updated the uploader caption, the "no data yet" info messages (Data
+      page and Home summary), and `docs/bloomberg-exports.md` (added an
+      `.xlsx`-shape example alongside the CSV one) to describe both formats.
+- [x] `tests/functional/test_bloomberg_extraction_page.py` — added
+      `xlsx_export()` helper plus two tests: an all-xlsx upload merges the
+      same as the equivalent CSV, and a mixed CSV+xlsx upload merges into one
+      frame. Three pre-existing tests updated for now-changed copy/behavior
+      (the "upload to get started" text, and two `.xlsx`-is-rejected test
+      cases in `test_upload.py`/`test_upload_flow.py` that assumed `.xlsx`
+      was always invalid — updated to use `.xls` instead, which is still
+      correctly rejected).
+- [x] Full suite green (`uv run pytest`) and `uv run ruff check .` clean
+      after these changes.
 
 ### Task 1.3 — accept a previously-merged file back in, without re-labelling it (DEFERRED — do not implement yet, pending team discussion)
 
