@@ -1,6 +1,6 @@
 # Ingestion Consolidation & Sprint 2 Fixes — Build Spec
 
-**Status:** Ready for implementation. **Date:** 17 Sep 2026.
+**Status:** In progress. Phase 1 is done; see the progress log at the bottom. **Date:** 17 Sep 2026.
 
 **Goal:** Fix the ingestion-side issues found by walking the codebase against the
 sponsor-approved proposal and validation-metrics documents (accept both CSV and
@@ -294,10 +294,10 @@ Because schema stays open/dynamic (Section 1), the following are removal
 first, and a couple have pieces worth keeping even if the surrounding module
 goes:
 
-- [ ] `src/forecasting_engine/ingest/schema.py` and `ingest/validation.py` —
+- [x] `src/forecasting_engine/ingest/schema.py` and `ingest/validation.py` —
       the fixed 8-column contract and its validator. Superseded by the
       open-schema decision.
-- [ ] `src/forecasting_engine/quality/` (all of it: `report.py`,
+- [x] `src/forecasting_engine/quality/` (all of it: `report.py`,
       `schema_check.py`, `outliers.py`, `gaps.py`, `missing.py`, `build.py`) —
       confirmed via repo-wide grep to have zero callers outside its own tests
       as of this plan. Two things worth salvaging before deleting the package:
@@ -307,10 +307,10 @@ goes:
       2. `quality/outliers.py`'s MAD implementation duplicates
          `extraction/validation.py`'s (`_robust_z`/`_drop_rebounds`) —
          once one is confirmed the single source of truth, the other goes.
-- [ ] `src/forecasting_engine/store/validations.py` — a DuckDB event-log table
+- [x] `src/forecasting_engine/store/validations.py` — a DuckDB event-log table
       never written to by the live app (only `store/uploads.py` is used).
       Confirm no other caller before removing.
-- [ ] `src/forecasting_engine/ingest/bloomberg.py`, `ingest/workbook.py`, and
+- [x] `src/forecasting_engine/ingest/bloomberg.py`, `ingest/workbook.py`, and
       the `convert.py` CLI — the `.xlsx`-to-fixed-contract converter. **Decided:
       these are retired once Task 1.1 is done** — the new xlsx reader only
       reuses three small, contract-independent helpers from `bloomberg.py`
@@ -319,7 +319,7 @@ goes:
       delete `TICKER_MAP`'s mapping table** even though the module around it
       goes — move it to wherever Phase 4's target-identification logic lives
       before deleting the rest of the file.
-- [ ] `extraction/workbook.py` vs. `ingest/workbook.py` — functionally
+- [x] `extraction/workbook.py` vs. `ingest/workbook.py` — functionally
       identical `.xlsx`-writer modules (only the sheet-name constant
       differs). Keep one; have the other re-export it, or delete the
       redundant one — whichever is simpler once Phase 1 settles.
@@ -513,3 +513,57 @@ Verify current status in code before starting each — Jira may be stale
 - Manually exercise the affected Streamlit page(s) and confirm behaviour
   matches this spec before moving to the next phase — don't chain phases on
   an unverified previous one.
+
+---
+
+## Progress log — what was actually done (as of 18 Sep)
+
+The build didn't follow the phase numbers. This records what landed, what was
+done that the plan didn't ask for, and what's still open.
+
+**Done and committed on `Toby`:**
+
+- **Phase 1 (Tasks 1.1, 1.2), `5607f5e`.** CSV and XLSX both accepted on the
+  open schema. Task 1.3 (resuming from a merged file) is still deferred.
+- **Unplanned: the target-horizon bug, `9bbf9a0`.** Found during review, not
+  in the original phases. The target's horizon is now counted in its own
+  trading days, and `PurgedWalkForward` purges on `FeaturePanel.label_end`.
+  Details are in review correction 1 at the top.
+- **Plan review, `4a90170`.** The five review corrections, the new build order
+  (3 → 5 → 4.3 → 4.1 → 2 → 4.2 → 6), and the `LBUSTRUU` bond-target decision,
+  also recorded in `docs/bloomberg-exports.md`.
+- **Phase 3, `ae5162b`.** Removed `quality/`, `ingest/schema.py`,
+  `ingest/validation.py`, `store/validations.py`, `ingest/bloomberg.py`,
+  `ingest/bloomberg_csv.py`, `ingest/workbook.py` and `convert.py`, plus the 14
+  test files that only tested them. **Tests: 521 → 253**; the 268 removed are
+  exactly the collected items in the deleted files. `extraction/targets.py`
+  holds the salvaged ticker → target-role mapping. The MAD guards moved onto the
+  live `extraction/validation.py`. Retired design docs are marked as records,
+  not rewritten; the removed code is recoverable at `4a90170`.
+
+**Checks after Phase 3:** `uv run pytest` shows 253 passed and
+`uv run ruff check .` passes. All five pages render in the browser with no
+exceptions. End to end through the real Data and Models page scripts: the SPX
+and Global Aggregate `.xlsx` exports upload and commit (2,600 rows), a derived
+polynomial fits, and no training label reaches its test window across 123 folds
+on the app's defaults. That run also covers Phase 1's manual check, which was
+previously outstanding.
+
+**Not started:** Phase 5 (`2_Signals.py` is still in the nav, and there's no
+`FoldResult.screened_signals`), 4.3 (horizon is still a free `number_input`,
+and embargo still follows it), 4.1 (split target and signal uploads), Phase 2
+(auto forward-fill; `gap_decisions_*` and "Clean all" are still there), 4.2
+(target-aware Models and Model Metrics), and Phase 6.
+
+**Found along the way, for the team — not fixed, outside this plan:**
+
+- **An implausible model IC.** Deriving a polynomial for SPX 5-day returns from
+  the SPX and Global Aggregate exports reports an OOS rank IC of about 0.33. No
+  single signal explains it — each scores between −0.03 and +0.04 on its own.
+  It is **not** caused by the horizon fix (0.322 before, 0.340 after, same
+  settings) and no training label leaks. The likely cause is fitting raw price
+  *levels*, which trend, inside short 120-day windows. Worth checking before any
+  IC is shown to the sponsor.
+- **`fixtures.py` output is mislabelled by the live pipeline.** It writes a flat
+  fixed-contract CSV with no `Security` metadata, so every column comes back
+  prefixed with the filename. Same root cause as deferred Task 1.3.
