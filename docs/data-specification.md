@@ -1,5 +1,11 @@
 # Data Specification
 
+> **Retired contract, 17 Sep 2026.** This specifies the fixed nine-column
+> signal contract. The team moved to an open schema, which accepts any numeric
+> column, and removed `ingest/schema.py` and `ingest/validation.py`, the modules
+> that enforced it. For what the live app accepts, see
+> `docs/bloomberg-exports.md`; the live checks are in `extraction/validation.py`.
+
 The forecasting engine accepts a single CSV of daily market and macroeconomic
 signals. This document is the contract.
 

@@ -1,9 +1,10 @@
-"""File-level validation of an uploaded CSV.
+"""File-level validation of an uploaded CSV or XLSX file.
 
 This is the gate between a browser upload and the rest of the engine. It
-answers one question — is this a file we can work with at all? — and answers it
-in three parts: the right extension, within the size limit, and parseable as
-delimited text.
+answers one question — is this a file we can work with at all? — checking the
+extension and the size limit before anything tries to parse it. Parsing
+itself is per-format: ``extraction.bloomberg_csv``/``extraction.bloomberg_xlsx``
+for a raw Bloomberg export, or ``parse_csv`` below for an already-merged CSV.
 
 It deliberately says nothing about *columns*. Whether the file carries the
 signals the contract requires is schema validation's job (FYP-8), which runs on
@@ -39,7 +40,8 @@ DEFAULT_UPLOADS_DIR: Path = Path("data/uploads")
 
 DATE_COLUMN = "date"
 
-_EXPORT_HINT = "Re-export it using Save As → CSV UTF-8."
+_ACCEPTED_SUFFIXES = (".csv", ".xlsx")
+_EXPORT_HINT = "Re-export it as .csv or .xlsx."
 
 
 class UploadError(Exception):
@@ -79,12 +81,15 @@ class AcceptedUpload:
 
 
 def check_extension(filename: str) -> None:
-    """Raise ``FileTypeError`` unless ``filename`` ends in .csv."""
+    """Raise ``FileTypeError`` unless ``filename`` ends in .csv or .xlsx."""
     suffix = Path(filename).suffix
-    if suffix.lower() == ".csv":
+    if suffix.lower() in _ACCEPTED_SUFFIXES:
         return
     got = f"a {suffix} file" if suffix else "a file with no extension"
-    raise FileTypeError(f"Only .csv files are accepted. {filename!r} is {got}. {_EXPORT_HINT}")
+    accepted = " or ".join(_ACCEPTED_SUFFIXES)
+    raise FileTypeError(
+        f"Only {accepted} files are accepted. {filename!r} is {got}. {_EXPORT_HINT}"
+    )
 
 
 def check_size(size_bytes: int, *, filename: str) -> None:

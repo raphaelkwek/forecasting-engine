@@ -29,7 +29,7 @@ import pandas as pd
 from forecasting_engine.features.screening import screen_over_folds
 from forecasting_engine.ingest.align import FeaturePanel
 from forecasting_engine.models.base import Forecaster, ModelDescription
-from forecasting_engine.reporting.model_metrics import ModelRunResult
+from forecasting_engine.reporting.model_metrics import ModelRunResult, ScreeningSummary
 from forecasting_engine.validation import metrics
 from forecasting_engine.validation.crash import (
     CrashDiagnostics,
@@ -38,6 +38,28 @@ from forecasting_engine.validation.crash import (
 )
 from forecasting_engine.validation.pbo import N_BLOCKS, compute_pbo
 from forecasting_engine.validation.splitters import PurgedWalkForward
+
+
+@dataclass(frozen=True)
+class FoldScreening:
+    """What one fold's screening considered and kept, and so what the fold was fit on."""
+
+    candidates: tuple[str, ...]
+    included: tuple[str, ...]
+    """May be empty: every signal failed screening on this fold's train window."""
+
+    @property
+    def fitted(self) -> tuple[str, ...]:
+        """The signals this fold was actually fit on.
+
+        When screening keeps nothing, the fold falls back to every candidate
+        rather than fitting on no features, so this is not always ``included``.
+        """
+        return self.included or self.candidates
+
+    @property
+    def fell_back(self) -> bool:
+        return not self.included
 
 
 @dataclass(frozen=True)
@@ -63,6 +85,9 @@ class FoldResult:
     """This fold's fitted model, described — a degree-5 derived fit can pick
     different terms fold to fold, so the description travels with the fold
     rather than being reported once for the whole run."""
+    screening: FoldScreening | None = None
+    """Which signals this fold's screening kept and fit on, or ``None`` when
+    ``evaluate()`` ran without screening."""
 
 
 def evaluate(
@@ -93,9 +118,13 @@ def evaluate(
     results = []
     for fold, (train_idx, test_idx) in enumerate(folds):
         fold_panel = panel
+        screening = None
         if per_fold_screen is not None:
             included = tuple(s.signal for s in per_fold_screen[fold] if s.included)
-            fold_panel = replace(panel, signals=included or panel.signals)
+            screening = FoldScreening(candidates=panel.signals, included=included)
+            # The fold is fit on exactly what's recorded, so a display built from
+            # ``screening`` can't disagree with what the model actually used.
+            fold_panel = replace(panel, signals=screening.fitted)
         forecaster = make_forecaster()
         forecaster.fit(fold_panel, train_idx)
         predicted = forecaster.predict(fold_panel, test_idx)
@@ -112,6 +141,7 @@ def evaluate(
                 realised=realised,
                 realised_train=realised_train,
                 description=forecaster.describe(),
+                screening=screening,
             )
         )
     return tuple(results)
@@ -136,6 +166,7 @@ def summarize(
         rmse=_mean_finite(metrics.rmse(f.predicted, f.realised) for f in folds),
         pbo=pbo,
         crash=_crash_over_folds(folds),
+        screening=_screening_summary(folds),
     )
     # FYP-122's "deliverable artifact": the most recent fold's fitted terms
     # and coefficients — a fit can pick different terms fold to fold, so this
@@ -205,3 +236,24 @@ def _crash_over_folds(folds: tuple[FoldResult, ...]) -> CrashDiagnostics:
     ]
     combined = pd.concat(labelled)
     return crash_diagnostics(combined["flagged"], combined["true_tail"])
+
+
+def _screening_summary(folds: tuple[FoldResult, ...]) -> ScreeningSummary | None:
+    """Count, per signal, the folds that fit it — ``None`` if no fold screened.
+
+    Counts ``fitted`` rather than ``included``: a fold that fell back fit on every
+    signal, so it counts towards each. Every candidate is listed, including one no
+    fold used, since a signal screened out everywhere is the most useful row.
+    """
+    screened = [f.screening for f in folds if f.screening is not None]
+    if not screened:
+        return None
+    counts = dict.fromkeys(screened[0].candidates, 0)
+    for screening in screened:
+        for signal in screening.fitted:
+            counts[signal] = counts.get(signal, 0) + 1
+    return ScreeningSummary(
+        folds=len(screened),
+        fell_back=sum(s.fell_back for s in screened),
+        counts=tuple(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+    )

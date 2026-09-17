@@ -2,9 +2,9 @@
 function, and FYP-44's machine-learning models — every model family built so far,
 sharing one walk-forward harness.
 
-Reads the dataset committed via "Use Updated Data" on the Data page, same as the
-Signals page. No maths lives here — fitting is in forecasting_engine.models.polynomial
-/ famafrench / boosted; the walk-forward loop is in forecasting_engine.validation.harness.
+Reads the dataset committed via "Use Updated Data" on the Data page. No maths
+lives here — fitting is in forecasting_engine.models.polynomial / famafrench /
+boosted; the walk-forward loop is in forecasting_engine.validation.harness.
 """
 
 from __future__ import annotations
@@ -45,6 +45,19 @@ FAMAFRENCH_DESCRIPTION_KEY = "famafrench_description"
 ML_RESULT_KEY = "ml_result"
 ML_DESCRIPTION_KEY = "ml_description"
 
+#: The forecast horizons the validation framework asks for, reported separately
+#: and never averaged.
+HORIZONS: tuple[int, ...] = (1, 5)
+
+#: One embargo shared by every horizon, equal to the longest of them, rather than
+#: one per horizon. Picking h=1 used to drop the embargo to 1 as well.
+EMBARGO_DAYS: int = max(HORIZONS)
+
+#: Signal lag in production. There is no legitimate reason to run with any other
+#: value: a longer lag throws away usable data, a shorter one uses data not yet
+#: published. Raising it is only for the lag-shift audit.
+PRODUCTION_LAG_DAYS: int = 1
+
 st.set_page_config(page_title="Models · Forecasting Engine", page_icon=":material/functions:")
 ui.inject()
 
@@ -73,44 +86,48 @@ family = st.radio(
     horizontal=True,
 )
 
-cols = st.columns(3)
-horizon = cols[0].number_input(
-    "Forecast horizon (days)",
-    min_value=1,
-    value=5,
-    step=1,
-    help="How many days ahead to predict",
+horizon = st.segmented_control(
+    "Forecast horizon",
+    HORIZONS,
+    default=max(HORIZONS),
+    required=True,
+    format_func=lambda days: f"{days} day" if days == 1 else f"{days} days",
+    help="How many trading days ahead to predict. Each horizon is run and reported "
+    "separately — the two are never averaged.",
 )
-lag_days = cols[1].number_input(
-    "Signal lag (days)",
-    min_value=1,
-    value=1,
-    step=1,
-    help="Delay before today's data is usable (avoids look-ahead)",
-)
-train = cols[2].number_input(
+
+cols = st.columns(2)
+train = cols[0].number_input(
     "Walk-forward train window (days)",
     min_value=10,
     value=120,
     step=10,
     help="How much history the model studies (120 days ≈ 6 months)",
 )
-cols2 = st.columns(2)
-test = cols2[0].number_input(
+test = cols[1].number_input(
     "Walk-forward test window (days)",
     min_value=1,
     value=20,
     step=5,
     help="The days right after training where we check if the predictions actually came true",
 )
-embargo = cols2[1].number_input(
-    "Embargo (days)",
-    min_value=0,
-    value=int(horizon),
-    step=1,
-    help="Buffer between training and grading, so they don't leak into each other",
+st.caption(
+    f"Embargo is fixed at {EMBARGO_DAYS} trading days — the longest forecast horizon — "
+    "whichever horizon is selected, so training and grading never overlap."
 )
-splitter = PurgedWalkForward(train=int(train), test=int(test), embargo=int(embargo))
+
+with st.expander("Advanced: lag-shift audit"):
+    st.caption(
+        f"Signals are lagged {PRODUCTION_LAG_DAYS} trading day, so each value is one that "
+        "had already been published. Leave this alone for a normal run. To audit for "
+        "look-ahead, run once, raise the lag by one day and run again: a signal whose "
+        "predictive power collapses was probably leaking."
+    )
+    lag_days = st.number_input(
+        "Signal lag (days)", min_value=1, value=PRODUCTION_LAG_DAYS, step=1
+    )
+
+splitter = PurgedWalkForward(train=int(train), test=int(test), embargo=EMBARGO_DAYS)
 
 result: ModelRunResult | None = None
 description: ModelDescription | None = None
@@ -274,3 +291,28 @@ if result_key in st.session_state:
         st.dataframe(rows, width="stretch", hide_index=True)
     else:
         st.caption("No terms survived fitting — every coefficient was regularized to zero.")
+
+    # Only runs that screen per fold (derived polynomial, machine learning) have
+    # this. getattr, not attribute access: a result kept in session state from
+    # before this field existed shouldn't take the page down.
+    screening = getattr(result, "screening", None)
+    if screening is not None:
+        st.markdown(ui.eyebrow("Signal inclusion across folds"), unsafe_allow_html=True)
+        st.caption(
+            f"How many of the {screening.folds} walk-forward folds were fit on each signal. "
+            "Every fold screens signals on its own training window, so a signal can be "
+            "kept in some folds and dropped in others."
+        )
+        st.dataframe(
+            [
+                {"Signal": signal, "Folds": f"{used}/{screening.folds}"}
+                for signal, used in screening.counts
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+        if screening.fell_back:
+            st.caption(
+                f"{screening.fell_back} of {screening.folds} folds kept no signal after "
+                "screening, so they were fit on every signal instead."
+            )

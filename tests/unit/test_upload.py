@@ -37,17 +37,22 @@ def test_csv_extensions_are_accepted(filename):
     check_extension(filename)
 
 
-@pytest.mark.parametrize("filename", ["book.xlsx", "notes.txt", "data.csv.gz", "noextension"])
+@pytest.mark.parametrize("filename", ["book.xlsx", "BOOK.XLSX", "a.b.xlsx"])
+def test_xlsx_extensions_are_accepted(filename):
+    check_extension(filename)
+
+
+@pytest.mark.parametrize("filename", ["notes.txt", "book.xls", "data.csv.gz", "noextension"])
 def test_other_extensions_are_rejected(filename):
     with pytest.raises(FileTypeError):
         check_extension(filename)
 
 
-def test_the_type_error_names_the_extension_we_got():
+def test_the_type_error_names_the_accepted_extensions():
     with pytest.raises(FileTypeError) as exc:
-        check_extension("q1-export.xlsx")
-    assert ".xlsx" in exc.value.message
+        check_extension("q1-export.pdf")
     assert ".csv" in exc.value.message
+    assert ".xlsx" in exc.value.message
 
 
 def test_a_renamed_spreadsheet_is_rejected_even_though_it_ends_in_csv():

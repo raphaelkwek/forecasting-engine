@@ -72,9 +72,7 @@ No emoji anywhere: an internal analytical tool should read as a tool.
 ```
 src/forecasting_engine/     core library, never imports Streamlit
   extraction/               active generic Bloomberg merge and validation
-  ingest/fama_french.py     cached, manually requested factor download
-  ingest/                   legacy signal-contract modules, not used by Data
-  quality/                  legacy signal-contract report modules
+  ingest/                   upload checks, Fama-French factors, lag-safe alignment
   store/                    DuckDB history
 app/                        Streamlit dashboard, no maths
   ui.py                     lozenges, status rows, shared presentation

@@ -49,6 +49,10 @@ class BloombergCsvExport:
     security: str
     frame: pd.DataFrame
     """``Date`` plus one column per field, each named ``{label}_{field}``."""
+    notes: tuple[str, ...] = ()
+    """Repairs the reader made and reported, such as a repeated date kept
+    last (see ``extraction.bloomberg_xlsx``, which is the only reader that
+    populates this today)."""
 
 
 def read_export(filename: str, data: bytes) -> BloombergCsvExport:
@@ -72,9 +76,9 @@ def read_export(filename: str, data: bytes) -> BloombergCsvExport:
     frame = frame.rename(columns={frame.columns[0]: DATE_COLUMN})
     frame[DATE_COLUMN] = pd.to_datetime(frame[DATE_COLUMN], errors="coerce")
 
-    label = _label(security, filename)
+    lbl = label(security, filename)
     fields = [c for c in frame.columns if c != DATE_COLUMN]
-    frame = frame.rename(columns={field: f"{label}_{field}" for field in fields})
+    frame = frame.rename(columns={field: f"{lbl}_{field}" for field in fields})
 
     return BloombergCsvExport(filename=filename, security=security, frame=frame)
 
@@ -90,18 +94,18 @@ def merge(exports: Sequence[BloombergCsvExport]) -> pd.DataFrame:
     if not exports:
         return pd.DataFrame(columns=[DATE_COLUMN])
 
-    labels = [_label(e.security, e.filename) for e in exports]
+    labels = [label(e.security, e.filename) for e in exports]
     counts = Counter(labels)
 
     frames = []
-    for export, label in zip(exports, labels, strict=True):
-        if counts[label] > 1:
-            distinct = _label("", export.filename)
+    for export, lbl in zip(exports, labels, strict=True):
+        if counts[lbl] > 1:
+            distinct = label("", export.filename)
             frame = export.frame.rename(
                 columns={
-                    c: distinct + c[len(label):]
+                    c: distinct + c[len(lbl):]
                     for c in export.frame.columns
-                    if c != DATE_COLUMN and c.startswith(label)
+                    if c != DATE_COLUMN and c.startswith(lbl)
                 }
             )
         else:
@@ -223,7 +227,11 @@ def _security(meta_lines: list[str]) -> str:
     return ""
 
 
-def _label(security: str, filename: str) -> str:
-    """A column-name-safe label identifying the file's security."""
+def label(security: str, filename: str) -> str:
+    """A column-name-safe label identifying the file's security.
+
+    Public (not ``_``-prefixed): ``extraction.bloomberg_xlsx`` reuses this so
+    an xlsx export and a CSV export sharing a security label the same way.
+    """
     base = security or filename.rsplit(".", 1)[0]
     return _LABEL_RE.sub("_", base).strip("_")

@@ -1,18 +1,13 @@
-"""End-to-end: quality decisions -> lag-safe panel -> polynomial model -> the
+"""End-to-end: raw frame -> lag-safe panel -> polynomial model -> the
 shared comparison contract (FYP-125, and the Polynomial slice of FYP-141)."""
 
 from __future__ import annotations
-
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
 from forecasting_engine.ingest.align import align_and_lag
-from forecasting_engine.ingest.provenance import SourceFile
 from forecasting_engine.models.polynomial import run_derived_polynomial, run_user_polynomial
-from forecasting_engine.quality.build import apply_decisions
-from forecasting_engine.quality.report import QualityReport
 from forecasting_engine.reporting.model_metrics import build_metrics_rows
 from forecasting_engine.validation.gates import evaluate_candidate
 from forecasting_engine.validation.splitters import PurgedWalkForward
@@ -26,20 +21,13 @@ def _raw_frame(n: int = 100) -> pd.DataFrame:
     return pd.DataFrame({"strong_signal": strong_signal, "price": price}, index=idx)
 
 
-def _empty_quality_report() -> QualityReport:
-    return QualityReport(
-        source=SourceFile.of("prices.csv", b"irrelevant"), generated_at=datetime.now()
-    )
-
-
 def _splitter() -> PurgedWalkForward:
     return PurgedWalkForward(train=40, test=8, embargo=2)
 
 
 def test_user_supplied_formula_bypasses_fitting_and_applies_directly():
     frame = _raw_frame()
-    decided = apply_decisions(frame, _empty_quality_report())
-    panel = align_and_lag(decided, ["strong_signal"], "price", horizon=1, lag_days=1)
+    panel = align_and_lag(frame, ["strong_signal"], "price", horizon=1, lag_days=1)
 
     result, description = run_user_polynomial("strong_signal", panel, _splitter())
 
@@ -50,8 +38,7 @@ def test_user_supplied_formula_bypasses_fitting_and_applies_directly():
 
 def test_derived_fit_flows_through_to_the_promotion_gate_and_comparison_table():
     frame = _raw_frame()
-    decided = apply_decisions(frame, _empty_quality_report())
-    panel = align_and_lag(decided, ["strong_signal"], "price", horizon=1, lag_days=1)
+    panel = align_and_lag(frame, ["strong_signal"], "price", horizon=1, lag_days=1)
 
     result, _description = run_derived_polynomial(panel, _splitter(), n_blocks=4)
 

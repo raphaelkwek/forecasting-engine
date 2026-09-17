@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 import ui
-from forecasting_engine.extraction import bloomberg_csv, validation, workbook
+from forecasting_engine.extraction import bloomberg_csv, bloomberg_xlsx, validation, workbook
 from forecasting_engine.extraction.validation import ValidationReport
 from forecasting_engine.ingest import fama_french
 from forecasting_engine.ingest.fama_french import FactorFetchError, FactorFile
@@ -34,9 +34,9 @@ MERGED_KEY = "extraction_merged"
 REPORT_KEY = "extraction_report"
 FACTORS_KEY = "fama_french"
 
-#: The cleaned frame (and its own report) that Home and the Signals page
+#: The cleaned frame (and its own report) that Home, Models and Model Metrics
 #: read. Only updated when the user clicks "Use Updated Data" — not on every
-#: gap-review edit — so both pages stay stable while decisions are still
+#: gap-review edit — so those pages stay stable while decisions are still
 #: being made.
 COMMITTED_KEY = "extraction_committed"
 COMMITTED_REPORT_KEY = "extraction_committed_report"
@@ -74,14 +74,15 @@ def render() -> None:
         st.rerun()
 
     st.caption(
-        f"Upload Bloomberg CSV exports, up to {MAX_UPLOAD_BYTES // 1_000_000} MB each. "
+        f"Upload Bloomberg CSV or Excel (.xlsx) exports, up to "
+        f"{MAX_UPLOAD_BYTES // 1_000_000} MB each. "
         "All selected files are merged on Date with an outer join. Gaps and outliers "
         "are reported for review without blocking the merge."
     )
 
     uploaded = st.file_uploader(
-        "Bloomberg CSV exports",
-        type=None,
+        "Bloomberg exports (.csv or .xlsx)",
+        type=["csv", "xlsx"],
         accept_multiple_files=True,
         key=f"bloomberg_uploader_{st.session_state.get(_UPLOADER_VERSION_KEY, 0)}",
     )
@@ -94,8 +95,17 @@ def render() -> None:
                     data = file.getvalue()
                     check_extension(file.name)
                     check_size(len(data), filename=file.name)
-                    export = bloomberg_csv.read_export(file.name, data)
-                except (UploadError, bloomberg_csv.BloombergCsvError) as exc:
+                    reader = (
+                        bloomberg_xlsx.read_export
+                        if file.name.lower().endswith(".xlsx")
+                        else bloomberg_csv.read_export
+                    )
+                    export = reader(file.name, data)
+                except (
+                    UploadError,
+                    bloomberg_csv.BloombergCsvError,
+                    bloomberg_xlsx.BloombergXlsxError,
+                ) as exc:
                     errors.append(str(exc))
                     continue
 
@@ -146,7 +156,10 @@ def render() -> None:
     merged = st.session_state.get(MERGED_KEY)
     report = st.session_state.get(REPORT_KEY)
     if merged is None or report is None:
-        st.info("Upload Bloomberg CSV exports above to get started.", icon=":material/upload_file:")
+        st.info(
+            "Upload Bloomberg CSV or Excel exports above to get started.",
+            icon=":material/upload_file:",
+        )
         return
 
     # Reserved here so the summary stays in its usual position, but filled in
@@ -182,9 +195,9 @@ def render() -> None:
             icon=":material/check_circle:",
         )
     elif COMMITTED_KEY in st.session_state:
-        st.caption("A dataset is committed for Home and the Signals page.")
+        st.caption("A dataset is committed for Home, Models and Model Metrics.")
     else:
-        st.caption("Nothing committed yet — Home and the Signals page have no data yet.")
+        st.caption("Nothing committed yet — Home, Models and Model Metrics have no data yet.")
 
     # Filled in now (not where reserved above) so this reflects a commit made
     # by the button just above it, in this same run — no rerun needed.
@@ -381,7 +394,7 @@ def render_summary() -> None:
     """The Home page's data quality report, read back from session state.
 
     Reflects whichever dataset was last committed on the Data page via
-    "Use Updated Data" — the same commit the Signals page reads — not
+    "Use Updated Data" — the same commit the Models page reads — not
     every upload or gap-review edit.
     """
     ui.inject()
@@ -401,7 +414,7 @@ def render_summary() -> None:
 
 def _render_awaiting_upload() -> None:
     st.info(
-        "No data committed yet. Upload Bloomberg CSV exports on the **Data** page and "
+        "No data committed yet. Upload Bloomberg CSV or Excel exports on the **Data** page and "
         "click **Use Updated Data**.",
         icon=":material/hourglass_empty:",
     )

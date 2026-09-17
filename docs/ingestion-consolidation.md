@@ -1,5 +1,11 @@
 # Ingestion consolidation: one converter, one validator, one of each check
 
+> **Superseded, 17 Sep 2026.** This records an earlier consolidation onto the
+> fixed per-signal contract (`ingest/schema.py`, `ingest/bloomberg*.py`). The team
+> later chose an open schema instead, and those modules were removed. The live
+> pipeline is `extraction/`. Kept for the reasoning, including the `LF98TRUU` and
+> `JPMVXYGL` export mistakes.
+
 > **Historical record, superseded for the active dashboard.** The Data page now
 > exposes only the generic Bloomberg multi-file extraction workflow. It accepts
 > original Bloomberg fields without mapping them through the temporary signal-CSV

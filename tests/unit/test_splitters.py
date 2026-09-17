@@ -1,6 +1,6 @@
 import pandas as pd
 
-from forecasting_engine.ingest.align import FeaturePanel
+from forecasting_engine.ingest.align import FeaturePanel, align_and_lag
 from forecasting_engine.validation.splitters import PurgedWalkForward
 
 
@@ -63,3 +63,53 @@ def test_no_purge_needed_when_embargo_already_covers_the_horizon():
     panel = _panel(20)
     train_idx, _ = next(PurgedWalkForward(train=10, test=3, embargo=2).split(panel))
     assert len(train_idx) == 10
+
+
+# --- purging by where a label's price actually comes from -------------------
+
+
+def _gappy_panel() -> FeaturePanel:
+    """A merged frame where the target's market is shut on every 4th row."""
+    idx = pd.bdate_range("2024-01-01", periods=60)
+    price = [100.0 + i if i % 4 != 3 else None for i in range(60)]
+    frame = pd.DataFrame({"signal_a": range(60), "price": price}, index=idx)
+    return align_and_lag(frame, ["signal_a"], "price", horizon=5, lag_days=1)
+
+
+def test_a_label_crossing_a_closed_day_is_purged_even_when_row_count_says_it_is_safe():
+    # This is the leak. The last training row sits 5 rows before the test
+    # window, so counting rows says its 5-day label ends in time. But one of
+    # those rows is a day the target's market was shut, so the label's price
+    # actually comes from inside the test window.
+    panel = _gappy_panel()
+    train_idx, test_idx = next(PurgedWalkForward(train=30, test=5, embargo=5).split(panel))
+
+    for date in train_idx:
+        end = panel.label_end.loc[date]
+        assert pd.isna(end) or end < test_idx[0], f"{date.date()} labels from {end.date()}"
+
+
+def test_no_training_label_ever_reaches_its_test_window_across_every_fold():
+    panel = _gappy_panel()
+    for train_idx, test_idx in PurgedWalkForward(train=20, test=5, embargo=1).split(panel):
+        ends = panel.label_end.reindex(train_idx).dropna()
+        assert (ends < test_idx[0]).all()
+
+
+def test_date_based_purging_is_never_looser_than_counting_rows():
+    # The same panel without label_end falls back to counting rows. Dating the
+    # purge must only ever remove more training rows, never fewer.
+    panel = _gappy_panel()
+    rows_only = FeaturePanel(
+        frame=panel.frame,
+        signals=panel.signals,
+        targets=panel.targets,
+        lag_days=panel.lag_days,
+        horizon=panel.horizon,
+    )
+    for (dated, _), (counted, _) in zip(
+        PurgedWalkForward(train=30, test=5, embargo=1).split(panel),
+        PurgedWalkForward(train=30, test=5, embargo=1).split(rows_only),
+        strict=True,
+    ):
+        assert len(dated) <= len(counted)

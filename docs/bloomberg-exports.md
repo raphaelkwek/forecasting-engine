@@ -1,17 +1,21 @@
 # Uploading Bloomberg exports
 
-The dashboard accepts Bloomberg's original CSV history exports, one file per
-security, and joins all fields on date. Do not rename columns, substitute fields
-or manually convert the files into a separate signal-CSV format.
+The dashboard accepts Bloomberg's original history exports, one file per
+security, either as **CSV** or as **Excel (`.xlsx`)**, and joins all fields on
+date. Do not rename columns, substitute fields or manually convert the files
+into a separate signal-CSV format. Which format you actually get depends on
+how your Bloomberg access produces the export — both are accepted so you
+don't need to convert one into the other by hand.
 
 ## What to export
 
-Export the histories needed for the analysis as CSV. Each file carries a
-metadata block, a blank line, and a table whose first column is `Date`. Every
-additional field is preserved. `PX_LAST`, `PX_BID`,
-`TOT_RETURN_INDEX_GROSS_DVDS` and other numeric Bloomberg fields can coexist.
+Export the histories needed for the analysis, as either CSV or `.xlsx` — no
+need to pick one over the other for the app's sake. `PX_LAST`, `PX_BID`,
+`TOT_RETURN_INDEX_GROSS_DVDS` and other numeric Bloomberg fields can coexist
+in the same file.
 
-A CSV export is the metadata block, a blank line, then the table:
+**A CSV export** is a metadata block, a blank line, then a table whose first
+column is `Date`:
 
 ```
 Security,SPX Index
@@ -26,12 +30,41 @@ Date,PX_LAST,PX_BID
 Trailing empty metadata cells, such as `Security,SPX Index,`, are accepted.
 Placeholder-only fields are removed after merging because they carry no data.
 
+**An `.xlsx` export** is a workbook with a `Data` sheet (`Date` plus one
+column per field, same shape as the CSV table above) and a `Metadata` sheet
+naming what was pulled — the security is read from the `Metadata` sheet, not
+guessed from the filename, since a filename has been observed to disagree
+with what a file actually contains.
+
+### Target indices
+
+Signals are open: export whatever the analysis needs. The two **targets** are
+not. They are fixed, and both are forecast on a **total-return** basis
+(dividends and coupons reinvested), never the plain price series:
+
+| Role | Security | Field |
+|---|---|---|
+| Equity target | `SPX Index` | `TOT_RETURN_INDEX_GROSS_DVDS` |
+| Bond target | `LBUSTRUU Index` | `TOT_RETURN_INDEX_GROSS_DVDS` |
+
+**The bond target is the US Aggregate, `LBUSTRUU`** — decided 17 Sep 2026. The
+earlier exports used `LEGATRUU`, the *Global* Aggregate. That is a different
+index with a different calendar, not a relabelling, so it needs re-exporting
+rather than renaming.
+
+The calendar difference matters. The US Aggregate follows the US bond market,
+which is closed on days the NYSE is open (Columbus Day, Veterans Day). On those
+days a merged file has a row but no bond price. That blank is correct and must
+stay blank: a target is never forward-filled, because a filled price on a closed
+day reads as a real trading day and turns into a return that never happened.
+
 ## Converting
 
-On the **Data** page, drop every CSV export into the one multi-file uploader.
-The page joins them on date, labels fields by security, validates their generic
-shape and reports gaps and statistically unusual moves. Nothing needs a command
-line and no temporary signal CSV is produced.
+On the **Data** page, drop every export (CSV or `.xlsx`, mixed together is
+fine) into the one multi-file uploader. The page joins them on date, labels
+fields by security, validates their generic shape and reports gaps and
+statistically unusual moves. Nothing needs a command line and no temporary
+signal CSV is produced.
 
 **Dates in a CSV export** are `m/d/yyyy` or `d/m/yyyy` depending on the
 terminal's locale, and for any day up to the 12th the two look the same. The

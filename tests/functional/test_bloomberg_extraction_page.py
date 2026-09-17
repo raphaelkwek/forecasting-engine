@@ -1,8 +1,11 @@
 """The Bloomberg extraction page, driven through the real Streamlit page."""
 
 import sys
+from datetime import date
+from io import BytesIO
 from pathlib import Path
 
+import openpyxl
 import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -24,8 +27,27 @@ def export(security, rows, fields="PX_LAST"):
     return ("\n".join(lines) + "\n").encode()
 
 
+def xlsx_export(security, rows, fields=("PX_LAST",)):
+    """A workbook shaped like a real Bloomberg .xlsx export: a Data sheet and
+    a Metadata sheet, as raw bytes ready for the uploader."""
+    book = openpyxl.Workbook()
+    sheet = book.active
+    sheet.title = "Data"
+    sheet.append(["Date", *fields])
+    for row_date, *values in rows:
+        sheet.append([row_date, *values])
+    meta = book.create_sheet("Metadata")
+    meta.append(["Field", "Value"])
+    meta.append(["Security", security])
+    buffer = BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
 SPX = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
 VIX = export("VIX Index", ["1/2/2020,15.0", "1/3/2020,16.0"])
+
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @pytest.fixture(autouse=True)
@@ -76,6 +98,28 @@ def test_multiple_files_are_merged_into_one_frame(page):
     assert "Merged 2 file(s) into 2 rows, 2 data columns" in texts(result.success)
 
 
+def test_an_xlsx_export_merges_the_same_as_a_csv_one(page):
+    spx_xlsx = xlsx_export(
+        "SPX Index", [(date(2020, 1, 2), 100.0), (date(2020, 1, 3), 101.0)]
+    )
+
+    result = upload(page, [("spx.xlsx", spx_xlsx, _XLSX_MIME)])
+
+    assert not result.error
+    assert "Merged 1 file(s) into 2 rows, 1 data columns" in texts(result.success)
+    merged = result.session_state["extraction_merged"]
+    assert "SPX_Index_PX_LAST" in merged.columns
+
+
+def test_a_mixed_csv_and_xlsx_upload_merges_into_one_frame(page):
+    vix_xlsx = xlsx_export("VIX Index", [(date(2020, 1, 2), 15.0), (date(2020, 1, 3), 16.0)])
+
+    result = upload(page, [("spx.csv", SPX, "text/csv"), ("vix.xlsx", vix_xlsx, _XLSX_MIME)])
+
+    assert not result.error
+    assert "Merged 2 file(s) into 2 rows, 2 data columns" in texts(result.success)
+
+
 def test_original_exports_with_trailing_cells_and_any_field_merge_unchanged(page):
     total_return = (
         b"Security,SPX Index,\nPeriod,D,\n,,\n"
@@ -104,7 +148,7 @@ def test_a_file_that_fails_the_schema_alone_is_reported_and_nothing_merges(page)
 
     assert not result.success
     assert "PX_LAST" in texts(result.error)
-    assert "Upload Bloomberg CSV exports above to get started" in texts(result.info)
+    assert "Upload Bloomberg CSV or Excel exports above to get started" in texts(result.info)
 
 
 def test_a_bad_type_file_among_good_files_is_excluded_while_good_ones_merge(page):

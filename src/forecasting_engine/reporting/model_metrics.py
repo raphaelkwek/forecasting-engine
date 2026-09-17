@@ -39,6 +39,22 @@ class Cell:
 
 
 @dataclass(frozen=True)
+class ScreeningSummary:
+    """How many walk-forward folds fit each signal, for a run that screened per fold.
+
+    Counts what each fold was actually fit on. A fold whose screening kept no
+    signal falls back to fitting on all of them, so it counts towards every
+    signal here, and ``fell_back`` says how many folds did that.
+    """
+
+    folds: int
+    fell_back: int
+    counts: tuple[tuple[str, int], ...]
+    """``(signal, folds that fit it)``, most-used first. A signal no fold used is
+    listed with zero rather than left out — that is what the table exists to show."""
+
+
+@dataclass(frozen=True)
 class ModelRunResult:
     """One model family's completed run. ``pbo`` is ``None`` for FF5 (no
     configuration search) — also the signal that row skips the gate badge."""
@@ -48,6 +64,10 @@ class ModelRunResult:
     rmse: float
     pbo: float | None
     crash: CrashDiagnostics
+    screening: ScreeningSummary | None = None
+    """Per-fold signal inclusion, or ``None`` for a run that didn't screen (FF5, a
+    user-supplied formula): those are handed their features and have nothing to
+    filter."""
 
 
 def build_metrics_rows(
