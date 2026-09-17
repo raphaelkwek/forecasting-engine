@@ -22,6 +22,8 @@ No emoji anywhere: an internal analytical tool should read as a tool.
 
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 TONES: tuple[str, ...] = ("neutral", "info", "success", "warning", "danger")
@@ -126,6 +128,24 @@ _CSS = """
     color: var(--fe-muted);
     margin-bottom: 2px;
   }
+
+  /* Streamlit's own help tooltip isn't available on raw markdown, so a
+     section label explains itself through the browser's title tooltip. */
+  .fe-eyebrow-help {
+    border: 1px solid var(--fe-border);
+    border-radius: 50%;
+    color: var(--fe-muted);
+    cursor: help;
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 600;
+    height: 12px;
+    line-height: 12px;
+    margin-left: 5px;
+    text-align: center;
+    text-transform: none;
+    width: 12px;
+  }
 </style>
 """
 
@@ -174,6 +194,15 @@ def finding_row(badge: str, where: str, detail: str) -> str:
     )
 
 
-def eyebrow(text: str) -> str:
-    """A small uppercase section label."""
-    return f'<div class="fe-eyebrow">{text}</div>'
+def eyebrow(text: str, help: str | None = None) -> str:
+    """A small uppercase section label, optionally with a hover explanation.
+
+    ``help`` renders as an ⓘ carrying the browser's own title tooltip, since a
+    markdown block has no access to Streamlit's ``help=``.
+    """
+    hint = (
+        f'<span class="fe-eyebrow-help" title="{html.escape(help, quote=True)}">i</span>'
+        if help
+        else ""
+    )
+    return f'<div class="fe-eyebrow">{text}{hint}</div>'

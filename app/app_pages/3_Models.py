@@ -12,6 +12,7 @@ from __future__ import annotations
 import streamlit as st
 
 import bloomberg_extraction_panel
+import glossary
 import ui
 from forecasting_engine.extraction.bloomberg_csv import DATE_COLUMN
 from forecasting_engine.ingest.align import align_and_lag
@@ -84,7 +85,9 @@ if merged is None:
     st.stop()
 
 numeric_cols = [c for c in merged.columns if c != DATE_COLUMN and merged[c].dtype.kind in "fi"]
-price_col = st.selectbox("Target price/level column", numeric_cols)
+price_col = st.selectbox(
+    "Target price/level column", numeric_cols, help=glossary.term("Target")
+)
 signal_cols = [c for c in numeric_cols if c != price_col]
 
 if not price_col:
@@ -95,6 +98,7 @@ family = st.radio(
     "Model family",
     ["Polynomial", "Fama-French 5-Factor", "Machine Learning"],
     horizontal=True,
+    help=glossary.term("Model family"),
 )
 
 horizon = st.segmented_control(
@@ -103,8 +107,7 @@ horizon = st.segmented_control(
     default=max(HORIZONS),
     required=True,
     format_func=lambda days: f"{days} day" if days == 1 else f"{days} days",
-    help="How many trading days ahead to predict. Each horizon is run and reported "
-    "separately — the two are never averaged.",
+    help=glossary.term("Forecast horizon"),
 )
 
 cols = st.columns(2)
@@ -113,29 +116,36 @@ train = cols[0].number_input(
     min_value=10,
     value=120,
     step=10,
-    help="How much history the model studies (120 days ≈ 6 months)",
+    help=glossary.term("Walk-forward train window (days)"),
 )
 test = cols[1].number_input(
     "Walk-forward test window (days)",
     min_value=1,
     value=20,
     step=5,
-    help="The days right after training where we check if the predictions actually came true",
+    help=glossary.term("Walk-forward test window (days)"),
 )
 st.caption(
     f"Embargo is fixed at {EMBARGO_DAYS} trading days — the longest forecast horizon — "
-    "whichever horizon is selected, so training and grading never overlap."
+    "whichever horizon is selected, so training and grading never overlap.",
+    help=glossary.term("Embargo"),
 )
 
+# st.expander takes no help text, so the ⓘ goes on the caption inside it.
 with st.expander("Advanced: lag-shift audit"):
     st.caption(
         f"Signals are lagged {PRODUCTION_LAG_DAYS} trading day, so each value is one that "
         "had already been published. Leave this alone for a normal run. To audit for "
         "look-ahead, run once, raise the lag by one day and run again: a signal whose "
-        "predictive power collapses was probably leaking."
+        "predictive power collapses was probably leaking.",
+        help=glossary.term("Lag-shift audit"),
     )
     lag_days = st.number_input(
-        "Signal lag (days)", min_value=1, value=PRODUCTION_LAG_DAYS, step=1
+        "Signal lag (days)",
+        min_value=1,
+        value=PRODUCTION_LAG_DAYS,
+        step=1,
+        help=glossary.term("Signal lag (days)"),
     )
 
 splitter = PurgedWalkForward(train=int(train), test=int(test), embargo=EMBARGO_DAYS)
@@ -161,7 +171,10 @@ if family == "Polynomial":
         f"{MAX_DEGREE}, regularized)."
     )
     mode = st.radio(
-        "Function source", ["Enter a function", "Derive automatically"], horizontal=True
+        "Function source",
+        ["Enter a function", "Derive automatically"],
+        horizontal=True,
+        help=glossary.term("Function source"),
     )
 
     if mode == "Enter a function":
@@ -262,10 +275,8 @@ else:
 
 def _show_fitted_terms(description: ModelDescription, *, is_ml: bool) -> None:
     value_col = "Mean |SHAP value|" if is_ml else "Coefficient"
-    st.markdown(
-        ui.eyebrow("Feature attribution (SHAP)" if is_ml else "Fitted terms"),
-        unsafe_allow_html=True,
-    )
+    heading = "Feature attribution (SHAP)" if is_ml else "Fitted terms"
+    st.markdown(ui.eyebrow(heading, glossary.term(heading)), unsafe_allow_html=True)
     if description.terms:
         rows = [
             {"Term": term, value_col: coefficient}
@@ -281,7 +292,7 @@ def _show_fitted_terms(description: ModelDescription, *, is_ml: bool) -> None:
 def _show_polynomial_function(fn: PolynomialFunction, fingerprint: tuple) -> None:
     """The fitted polynomial as a labelled equation and term table."""
     label = labeller(numeric_cols)
-    st.subheader(fn.origin)
+    st.subheader(fn.origin, help=glossary.term("Fitted terms"))
     st.caption(f"Forecasts: {label(fn.target)}, {fn.horizon}-day return")
     if fingerprint != dataset_fingerprint(merged):
         st.warning("Fitted on a previous dataset. Run again to update.")
@@ -299,7 +310,18 @@ def _show_polynomial_function(fn: PolynomialFunction, fingerprint: tuple) -> Non
         return
     if not fn.terms and fn.origin == Origin.DERIVED:
         st.caption("No terms survived fitting — every coefficient was regularized to zero.")
-    st.dataframe(term_rows(fn, label), width="stretch", hide_index=True)
+    st.dataframe(
+        term_rows(fn, label),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Factor": st.column_config.TextColumn("Factor", help=glossary.term("Factor")),
+            "Exponent": st.column_config.TextColumn("Exponent", help=glossary.term("Exponent")),
+            "Coefficient": st.column_config.TextColumn(
+                "Coefficient", help=glossary.term("Coefficient")
+            ),
+        },
+    )
 
 
 if result is not None and description is not None:
@@ -328,19 +350,31 @@ if result_key in st.session_state:
     description = st.session_state[description_key]
 
     metric_cols = st.columns(4)
-    metric_cols[0].metric("IC", f"{result.ic:.4f}" if result.ic == result.ic else "—")
+    metric_cols[0].metric(
+        "IC", f"{result.ic:.4f}" if result.ic == result.ic else "—", help=glossary.term("IC")
+    )
     oos_rank_ic_text = (
         f"{result.oos_rank_ic:.4f}" if result.oos_rank_ic == result.oos_rank_ic else "—"
     )
-    metric_cols[1].metric("OOS Rank IC", oos_rank_ic_text)
-    metric_cols[2].metric("RMSE", f"{result.rmse:.4f}" if result.rmse == result.rmse else "—")
-    metric_cols[3].metric("PBO", f"{result.pbo:.4f}" if result.pbo is not None else "N/A")
+    metric_cols[1].metric("OOS Rank IC", oos_rank_ic_text, help=glossary.term("OOS Rank IC"))
+    metric_cols[2].metric(
+        "RMSE",
+        f"{result.rmse:.4f}" if result.rmse == result.rmse else "—",
+        help=glossary.term("RMSE"),
+    )
+    metric_cols[3].metric(
+        "PBO", f"{result.pbo:.4f}" if result.pbo is not None else "N/A", help=glossary.term("PBO")
+    )
 
-    st.markdown(ui.eyebrow("Crash diagnostics"), unsafe_allow_html=True)
+    st.markdown(
+        ui.eyebrow("Crash diagnostics", glossary.term("Crash diagnostics")),
+        unsafe_allow_html=True,
+    )
     crash = result.crash
     st.caption(
         f"Recall {crash.recall:.4f} · Precision {crash.precision:.4f} · F1 {crash.f1:.4f} "
-        f"({crash.n_true_tail_days} true tail day(s) in the walk-forward test windows)."
+        f"({crash.n_true_tail_days} true tail day(s) in the walk-forward test windows).",
+        help=glossary.term("Crash diagnostics"),
     )
 
     if family == "Polynomial" and POLYNOMIAL_FUNCTION_KEY in st.session_state:
@@ -353,11 +387,17 @@ if result_key in st.session_state:
     # before this field existed shouldn't take the page down.
     screening = getattr(result, "screening", None)
     if screening is not None:
-        st.markdown(ui.eyebrow("Signal inclusion across folds"), unsafe_allow_html=True)
+        st.markdown(
+            ui.eyebrow(
+                "Signal inclusion across folds", glossary.term("Signal inclusion across folds")
+            ),
+            unsafe_allow_html=True,
+        )
         st.caption(
             f"How many of the {screening.folds} walk-forward folds were fit on each signal. "
             "Every fold screens signals on its own training window, so a signal can be "
-            "kept in some folds and dropped in others."
+            "kept in some folds and dropped in others.",
+            help=glossary.term("Signal inclusion across folds"),
         )
         st.dataframe(
             [
