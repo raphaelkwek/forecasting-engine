@@ -114,3 +114,81 @@ def test_a_run_without_screening_shows_no_inclusion_table():
     assert not app.exception
     assert "Signal inclusion across folds" not in _markdown(app)
     assert all("Folds" not in d.value.columns for d in app.dataframe)
+
+
+# --- Phase 4.3: the horizon, the embargo, and where the lag lives -----------
+
+
+@pytest.fixture
+def splitter_calls(monkeypatch):
+    """Record the arguments PurgedWalkForward is actually built with.
+
+    The page imports the name when its script runs, so patching the module
+    attribute beforehand is what the page picks up.
+    """
+    import forecasting_engine.validation.splitters as splitters
+
+    calls: list[dict] = []
+    real = splitters.PurgedWalkForward
+
+    class Recording(real):
+        def __init__(self, train: int, test: int, embargo: int):
+            calls.append({"train": train, "test": test, "embargo": embargo})
+            super().__init__(train, test, embargo)
+
+    monkeypatch.setattr(splitters, "PurgedWalkForward", Recording)
+    return calls
+
+
+def _bare_page() -> AppTest:
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = _committed()
+    return app.run()
+
+
+def test_the_horizon_is_a_choice_of_exactly_one_or_five_days():
+    app = _bare_page()
+
+    (horizon,) = [c for c in app.segmented_control if c.label == "Forecast horizon"]
+    assert list(horizon.options) == ["1 day", "5 days"]
+
+
+def test_the_horizon_defaults_to_five_days():
+    app = _bare_page()
+    (horizon,) = [c for c in app.segmented_control if c.label == "Forecast horizon"]
+    assert horizon.value == 5
+
+
+def test_the_free_numeric_horizon_input_is_gone():
+    app = _bare_page()
+    assert all("horizon" not in n.label.lower() for n in app.number_input)
+
+
+@pytest.mark.parametrize("chosen", [1, 5])
+def test_the_embargo_is_five_whichever_horizon_is_chosen(splitter_calls, chosen):
+    # Before, picking h=1 silently dropped the embargo to 1 as well.
+    app = _bare_page()
+    (horizon,) = [c for c in app.segmented_control if c.label == "Forecast horizon"]
+    horizon.set_value(chosen)
+    app.run()
+
+    assert not app.exception
+    assert splitter_calls, "the page must build a splitter"
+    assert splitter_calls[-1]["embargo"] == 5
+
+
+def test_the_embargo_is_no_longer_an_editable_input():
+    app = _bare_page()
+    assert all("embargo" not in n.label.lower() for n in app.number_input)
+
+
+def test_signal_lag_lives_in_the_advanced_audit_section_not_the_main_row():
+    app = _bare_page()
+
+    (audit,) = [e for e in app.expander if e.label == "Advanced: lag-shift audit"]
+    lag_inputs = [n for n in audit.number_input if n.label == "Signal lag (days)"]
+    assert len(lag_inputs) == 1
+    assert lag_inputs[0].value == 1
+
+    everywhere = [n for n in app.number_input if n.label == "Signal lag (days)"]
+    assert len(everywhere) == 1, "the lag control should exist only inside the audit section"
