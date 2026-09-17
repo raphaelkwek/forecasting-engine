@@ -20,6 +20,58 @@ in full before starting anything.
 
 ---
 
+## Review corrections — read before the phases (17 Sep, checked against the code)
+
+The plan was checked claim by claim against `Toby`. The code facts it states
+are accurate. Five things needed correcting, and the build order below replaces
+the phase numbering.
+
+**1. A live target-horizon bug, now fixed (`9bbf9a0`).** Not in the original
+plan. `align_and_lag` built the target with `pct_change(horizon)` on the merged
+frame, counting rows. The merged frame has a row for every date *any* series
+traded, so a day the target's market was shut is a row with no price. A
+"5-day" label crossing it was really a 4-day return, and the real move across
+it was dropped. On the real SPX + Global Aggregate exports: **347 of 2,422
+five-day SPX labels (14.3%) were the wrong horizon, and 173 real labels were
+dropped.** Both are now zero. `PurgedWalkForward` had to change with it — it
+purged by counting rows, which let a label that skips a closed day keep a price
+from inside the test window (the `2e768a3` leak, reopened). It now also purges
+on `FeaturePanel.label_end`. Crash recall and PBO needed no change themselves,
+but their inputs were affected.
+
+**2. Phase 2 must forward-fill signal columns only, never targets.** As written
+it fills every column. A filled target price on a closed day reads as a real
+trading day and becomes a fabricated 0% return — and it silently undoes fix 1.
+Phase 2 can't tell targets from signals until Phase 4.1 separates the uploads,
+so **4.1 now comes before 2**.
+
+**3. Phase 3's dependency list was incomplete.** Found by the verification gate:
+- `ingest/bloomberg_csv.py` is not listed, but it is dead (only its own test
+  imports it) and it imports `ingest/bloomberg.py`, so they go together.
+- `fixtures.py` and `tests/unit/test_fixtures.py` import `ingest/schema.py`.
+  Deleting `schema.py` breaks the synthetic data generator.
+- `quality/` is not caller-free: `tests/integration/test_polynomial_flow.py`
+  and `test_screening_flow.py` — live modelling tests — call
+  `apply_decisions()`. Both calls pass an empty report, so they are no-ops and
+  can simply be removed.
+
+**4. The bond target is `LBUSTRUU` (US Aggregate), decided 17 Sep.** The plan
+says "Barclays Agg", which is the US index, but the team's real export was
+`LEGATRUU`, the *Global* Aggregate — a different index and calendar. Recorded in
+`docs/bloomberg-exports.md` under "Target indices". Phase 4.1's detection
+defaults to `LBUSTRUU`; the existing `LEGATRUU` exports need re-pulling.
+
+**5. `TICKER_MAP` needs reshaping, not relocating.** It maps ticker → fixed
+column name (`"SPX Index": "spx_close"`). Phase 4.1 needs ticker → target role
+(equity or bond). Only 2 of its 7 entries are targets; the rest are signals,
+which the open schema doesn't map at all.
+
+**Build order:** 3 → 5 → 4.3 → 4.1 → 2 → 4.2 → 6. Phases 3, 5 and 4.3 are
+independent of the ingestion redesign; 4.1 must precede 2 (correction 2); 4.2
+reads what 4.1 commits.
+
+---
+
 ## 0. Read this first — ground rules
 
 - **This plan is self-contained.** It was produced by comparing the current

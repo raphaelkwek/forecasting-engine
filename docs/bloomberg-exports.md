@@ -36,6 +36,28 @@ naming what was pulled — the security is read from the `Metadata` sheet, not
 guessed from the filename, since a filename has been observed to disagree
 with what a file actually contains.
 
+### Target indices
+
+Signals are open: export whatever the analysis needs. The two **targets** are
+not. They are fixed, and both are forecast on a **total-return** basis
+(dividends and coupons reinvested), never the plain price series:
+
+| Role | Security | Field |
+|---|---|---|
+| Equity target | `SPX Index` | `TOT_RETURN_INDEX_GROSS_DVDS` |
+| Bond target | `LBUSTRUU Index` | `TOT_RETURN_INDEX_GROSS_DVDS` |
+
+**The bond target is the US Aggregate, `LBUSTRUU`** — decided 17 Sep 2026. The
+earlier exports used `LEGATRUU`, the *Global* Aggregate. That is a different
+index with a different calendar, not a relabelling, so it needs re-exporting
+rather than renaming.
+
+The calendar difference matters. The US Aggregate follows the US bond market,
+which is closed on days the NYSE is open (Columbus Day, Veterans Day). On those
+days a merged file has a row but no bond price. That blank is correct and must
+stay blank: a target is never forward-filled, because a filled price on a closed
+day reads as a real trading day and turns into a return that never happened.
+
 ## Converting
 
 On the **Data** page, drop every export (CSV or `.xlsx`, mixed together is
