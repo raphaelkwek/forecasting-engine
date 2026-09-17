@@ -105,14 +105,23 @@ merging into the same shape the rest of the pipeline already consumes.
       `Date` + `{label}_{field}` columns) — not the fixed-contract shape
       `ingest/bloomberg.py` currently produces, since we've decided to stay
       open-schema.
-- [ ] Don't write the xlsx-parsing logic from scratch: `ingest/bloomberg.py`
-      already has a tested `openpyxl`-based reader (`read_export`, reading the
-      `Data`/`Metadata` sheets, security detection, `dedupe_dates`). Reuse or
-      adapt its internals rather than duplicating them. Whether that means
-      importing from `ingest/bloomberg.py` with a thin adapter, or moving the
-      shared parsing logic somewhere both pipelines can use, is an
-      implementation judgment call — minimize duplication, and resolve Phase
-      3's question about `ingest/bloomberg.py`'s fate only after this is done.
+- [ ] Don't write the xlsx-parsing logic from scratch, but don't reuse
+      `ingest/bloomberg.py::read_export()` wholesale either — it extracts one
+      *named field* into a single series, whereas the open-schema shape needs
+      every field column in the sheet turned into a multi-column frame (like
+      `extraction/bloomberg_csv.py::read_export()` does for CSV). The field
+      extraction itself needs rewriting for that reason. What genuinely is
+      reusable, because it has nothing to do with the fixed contract: workbook
+      opening/corrupt-file handling, `_security()` (reading the `Security`
+      value off the `Metadata` sheet), and `dedupe_dates()`. Pull those three
+      into the new reader (move them to a shared location, or import them —
+      either is fine) rather than re-implementing them.
+- [ ] **Resolved: once this task is done, `ingest/bloomberg.py`,
+      `ingest/workbook.py`, and the `convert.py` CLI are retired in Phase 3.**
+      Everything else in them exists only to serve the fixed 8-column
+      contract, which is no longer used. The one thing to pull out before
+      deleting the module is `TICKER_MAP`'s mapping table itself (not the
+      surrounding module) — Phase 4 needs it.
 - [ ] `openpyxl` is already a dependency (`pyproject.toml`) — nothing to add.
 - [ ] Unit tests mirroring `tests/unit/test_extraction_bloomberg_csv.py`'s
       structure for the new reader.
@@ -130,6 +139,41 @@ merging into the same shape the rest of the pipeline already consumes.
       to describe both accepted formats.
 - [ ] Extend `tests/functional/test_bloomberg_extraction_page.py` to cover an
       xlsx upload end to end.
+
+### Task 1.3 — accept a previously-merged file back in, without re-labelling it (DEFERRED — do not implement yet, pending team discussion)
+
+Motivation: `st.session_state` is wiped by any browser refresh or restart
+(there is no server-side persistence today), so a user who already merged and
+downloaded a Bloomberg dataset in an earlier session currently has no way to
+resume from that download — re-uploading it through the existing uploader
+mangles it (see below), forcing a full redo of the raw-file merge.
+
+- [ ] `read_export()` identifies a raw per-security export by finding a
+      `Date,` header line with a metadata block above it, and labels its
+      columns from the `Security` value found there (or the filename, as a
+      fallback). A previously-downloaded merged file has `Date` as its very
+      first line with **no** metadata block above it, and its columns are
+      **already** labelled (`SPX_Index_PX_LAST`, etc.) — fed through
+      `read_export()` unchanged, it reads as "no security found," falls back
+      to a filename-derived label, and re-prefixes every already-labelled
+      column a second time, producing garbage column names. Confirmed by
+      tracing the current code; do not assume this already works.
+- [ ] Detect this shape (first line is the `Date,` header, no metadata block)
+      and, when detected, pass the file through as the merged frame directly
+      — skipping labelling and the per-file merge step — rather than routing
+      it through `read_export()`/`merge()`. It should still go through
+      validation and the gap-review step like any other merge result.
+- [ ] Fama-French factors need no equivalent fix — `fama_french.load_latest()`
+      already reads from an on-disk cache (`data/fama_french/`) independent of
+      session state, so it survives a lost session on its own.
+- [ ] **Considered and rejected: a second uploader on the Models page** for
+      resuming a lost session. A second entry point for data would need to
+      independently redo target detection and validation and write into the
+      same committed session state the Data tab produces, or the two paths
+      drift out of sync — the exact pattern that caused the original
+      ingestion-pipeline duplication this plan is cleaning up. The Data-tab
+      fix above is the only resume mechanism; do not add another one on
+      `4_Models.py`.
 
 ---
 
@@ -158,7 +202,10 @@ genuinely unexplained gap. A person has to manually tick a row, or click
 - [ ] After auto-filling, only show a review row for a date that **still**
       has a missing value once the cap has been applied (i.e. the gap
       exceeded `max_gap`). A gap the fill already resolved needs no human
-      judgement and shouldn't appear in the review table at all.
+      judgement and shouldn't appear in the review table at all. In the
+      normal case (most gaps are calendar closures within the cap) this
+      section should end up nearly empty, not listing every gap in the file
+      the way it does today.
 - [ ] `missing_row_report()`'s gap-reason labelling currently checks every
       column against one blanket NYSE calendar (`_HOLIDAY_CALENDAR = "NYSE"`,
       line ~34), which is known to be less accurate than a per-signal
@@ -201,13 +248,14 @@ goes:
       never written to by the live app (only `store/uploads.py` is used).
       Confirm no other caller before removing.
 - [ ] `src/forecasting_engine/ingest/bloomberg.py`, `ingest/workbook.py`, and
-      the `convert.py` CLI — the `.xlsx`-to-fixed-contract converter. Its fate
-      depends on how Task 1.1 was implemented: if Phase 1 built a genuinely
-      new xlsx reader inside `extraction/`, this becomes redundant; if Phase 1
-      adapted/reused this module directly, it survives as a real dependency.
-      Resolve only after Phase 1 is done. **Do not delete `TICKER_MAP`
-      wholesale** even if the fixed-contract converter around it goes — it's
-      needed for target identification in Phase 4.
+      the `convert.py` CLI — the `.xlsx`-to-fixed-contract converter. **Decided:
+      these are retired once Task 1.1 is done** — the new xlsx reader only
+      reuses three small, contract-independent helpers from `bloomberg.py`
+      (workbook opening, `_security()`, `dedupe_dates()`); everything else in
+      these modules exists solely to serve the fixed contract. **Do not
+      delete `TICKER_MAP`'s mapping table** even though the module around it
+      goes — move it to wherever Phase 4's target-identification logic lives
+      before deleting the rest of the file.
 - [ ] `extraction/workbook.py` vs. `ingest/workbook.py` — functionally
       identical `.xlsx`-writer modules (only the sheet-name constant
       differs). Keep one; have the other re-export it, or delete the
@@ -219,52 +267,112 @@ goes:
 
 ---
 
-## Phase 4 — Target identification and model/target awareness
+## Phase 4 — Target identification, at ingestion, and model/target awareness
 
-**Files:** `app/app_pages/4_Models.py`, `app/app_pages/3_Model_Metrics.py`,
-`app/app_pages/2_Signals.py` (until Phase 5 removes it), a shared location for
-the ticker→role mapping (inside `extraction/` or a small new module).
+**Files:** `app/bloomberg_extraction_panel.py`, `app/app_pages/4_Models.py`,
+`app/app_pages/3_Model_Metrics.py`, a shared location for the ticker→role
+mapping (inside `extraction/` or a small new module).
 
-### Task 4.1 — identify the two targets by ticker, not by merged column name
+Design decision (from team discussion): target selection happens **at
+ingestion**, not on the Models page — this matches the proposal's own Step 1
+("the user uploads... and selects the target indices"). The Models page reads
+which targets were confirmed, it doesn't ask the user to pick a column.
 
-- [ ] Both the Signals and Models pages currently offer a plain
-      `st.selectbox` over every numeric column in the merged frame as
-      "target" — those column names are filename-derived and not stable
-      (confirmed: two real uploaded files produced a target column name
-      driven entirely by the uploaded filename, not by anything guaranteed to
-      repeat). Replace this with a mapping from **Bloomberg Security ticker**
-      (the same metadata field `extraction/bloomberg_csv.py::_security()`
-      already extracts) to a fixed role — equity vs. bond. `ingest/
-      bloomberg.py::TICKER_MAP` already has this pattern
-      (`"SPX Index" → spx_close`, etc.) — reuse the concept even if that
-      module is otherwise retired in Phase 3. Confirm the exact ticker string
-      the team's real AGG export uses before hardcoding it — don't guess.
-- [ ] Match on the **total-return field** specifically
-      (`TOT_RETURN_INDEX_GROSS_DVDS` or equivalent), per the validation-
-      metrics document's total-return-basis requirement — not the plain price
-      series.
-- [ ] Target selection becomes two fixed choices ("Equity — S&P 500 total
-      return" / "Bond — AGG total return"), resolved internally to whichever
-      uploaded column actually matches that ticker + field — not a free
-      column-name picker.
-- [ ] If a required target ticker isn't present in the current upload, show a
-      clear error rather than silently letting the user pick something else.
+### Task 4.1 — explicit target vs. signal uploads, with ticker detection as a pre-filled default
 
-### Task 4.2 — namespace results by target; disable invalid combinations
+Design decision (from team discussion): don't rely on pure inference to
+decide which uploaded files are targets (y) vs. signals (x) — a single
+Bloomberg file can carry multiple fields (e.g. both `PX_LAST` and
+`TOT_RETURN_INDEX_GROSS_DVDS` in one export), so even correctly identifying
+"this file is SPX Index" doesn't by itself say which *column* is the target.
+Make the split structural and explicit, with detection as a convenience.
 
+- [ ] Split the Data page's upload area into two: **"Target index files"**
+      (expects exactly the equity and bond files) and **"Signal files"**
+      (everything else — macro/market data, freeform, many files, merged the
+      same open-schema way as today). Which files are y vs. x becomes a
+      structural choice, not an inferred one — this also removes any risk of
+      a target column silently ending up in the signal set.
+- [ ] Within the target upload area, run ticker detection (**Bloomberg
+      Security ticker**, the same metadata field
+      `extraction/bloomberg_csv.py::_security()` already extracts, matched via
+      the mapping table salvaged from `ingest/bloomberg.py::TICKER_MAP` in
+      Phase 1/3) as a **pre-filled default**, not a silent final answer: show
+      "detected: SPX Index, Total Return — Equity target" with an explicit
+      override control for both the role (Equity/Bond) and, if the file has
+      more than one numeric field column, which column is the target series.
+      Confirm the exact ticker string the team's real AGG export uses before
+      hardcoding a default match — don't guess.
+- [ ] Default the field match to **total-return** specifically
+      (`TOT_RETURN_INDEX_GROSS_DVDS` or equivalent) per the validation-
+      metrics document's total-return-basis requirement, but let the override
+      control pick a different column if the file doesn't have that field or
+      the user wants something else.
+- [ ] Do **not** hard-block "Use Updated Data" if only one target is
+      uploaded — a user may legitimately be working with equity-only data
+      this round. Record in the committed session state which target(s) were
+      actually resolved (a mapping of role → resolved column name, or `None`
+      for a role with nothing uploaded).
+- [ ] Signal-column candidates are always drawn only from the Signal-files
+      merge, never from the Target-files merge — structurally impossible for
+      a target to leak in as a signal, without needing a runtime exclusion
+      check.
+
+### Task 4.2 — Models page: target-aware, not target-agnostic
+
+- [ ] Replace the free `st.selectbox` on `4_Models.py` with a radio/selector
+      over exactly the targets confirmed on the Data page ("Equity — S&P
+      500" / "Bond — AGG"), disabled for whichever wasn't found in the
+      committed upload.
+- [ ] Fama-French 5-Factor is an equity-only benchmark and is not designed to
+      predict bond returns, even though it will technically run and produce
+      numbers if asked to. Disable/hide that model-family radio option
+      whenever the Bond target is selected.
 - [ ] `POLYNOMIAL_RESULT_KEY` etc. in `4_Models.py` (and the duplicated
       constants in `3_Model_Metrics.py`) are keyed only by model family today
       — running the same family against a different target silently
-      overwrites the other target's stored result. Add the target to the key
-      (or have `ModelRunResult` carry its target, and have Model Metrics
-      group/display per target instead of one flat table).
-- [ ] Fama-French 5-Factor is an equity-only benchmark and is not designed to
-      predict bond returns, even though it will run and produce numbers if
-      asked to. Disable or hide that model-family option when the bond target
-      is selected.
+      overwrites the other target's stored result. Namespace these by target
+      (or have `ModelRunResult` carry its target).
+- [ ] On `3_Model_Metrics.py`, split the single comparison table into two
+      sections, Equity and Bond, each showing the existing `MODEL_ORDER` rows
+      for that target. A model that doesn't apply to a given target (FF5
+      under Bond) should render as something like "N/A — not applicable,"
+      distinct from "Not run" (which means "could apply, hasn't been tried
+      yet").
 - [ ] Extend functional/AppTest coverage to assert: FF5 is unavailable for
-      the bond target, and switching targets doesn't clobber the other
-      target's stored result.
+      the bond target, switching targets doesn't clobber the other target's
+      stored result, and Model Metrics shows both sections correctly.
+
+### Task 4.3 — lock the forecast horizon to the two values the spec actually asks for
+
+Found while checking the horizon/lag/embargo mechanics for correctness — not
+originally in scope, flagging it here rather than changing it unasked:
+
+- [ ] The validation-metrics document requires exactly two horizons, h=1 and
+      h=5 trading days, **reported separately, never averaged**, with a
+      shared embargo equal to the *maximum* label horizon (5 days) — not a
+      per-horizon embargo. Today's "Forecast horizon (days)" control on
+      `4_Models.py` is a free `number_input` (any positive integer, default
+      5), and embargo defaults to whatever horizon is currently typed in
+      (`embargo = int(horizon)`) — so picking h=1 today also silently drops
+      embargo to 1, which doesn't match the spec.
+- [ ] Replace the free horizon input with a choice of exactly "1 day" / "5
+      days," **defaulting to 5 days**. Fix embargo at a constant 5 regardless
+      of which horizon is selected, rather than deriving it from the selected
+      horizon.
+- [ ] Signal lag stays a fixed 1 trading day by default, per spec — this is
+      already correct (`lag_days` defaults to 1 and is independent of
+      horizon); no change needed to the default. **Do** change how it's
+      presented: there is no legitimate reason to run production with lag
+      other than 1 (a larger lag only throws away usable recent data; a
+      smaller one risks using data not yet published). The one real use for
+      making it adjustable is the proposal's own Risk 2 mitigation — a
+      deliberate "lag-shift audit" (re-run with one extra day of lag; a
+      signal whose predictive power collapses was likely leaking). Move the
+      lag control out of the main input row into an "Advanced: lag-shift
+      audit" section (progressive disclosure, matching the proposal's own
+      Risk 9 mitigation for non-technical users) rather than presenting it as
+      a routine tunable next to horizon.
 
 ---
 
@@ -287,11 +395,15 @@ navigation), `app/app_pages/4_Models.py` (add the replacement view)
       (meaningful only when `screen=True` is used, i.e. ML and Derived-
       Polynomial): a small table of each signal against how many of the
       walk-forward folds included it (e.g. "vix: 8/8", "fx_impl_vol: 0/8").
-      This needs `evaluate()` (or `run_boosted()`/`run_derived_polynomial()`)
-      to expose the per-fold screening result instead of discarding it after
-      fitting — decide whether that's a new `FoldResult` field or a separate
-      call to `screen_over_folds()` run alongside the existing `evaluate()`
-      call.
+      **Decided:** add a field to `FoldResult` (e.g. `screened_signals:
+      tuple[str, ...] | None`) recording exactly which signals `evaluate()`
+      used to fit that fold — set it from the same `per_fold_screen` value
+      `evaluate()` already computes internally (harness.py, `screen=True`
+      path), not from a second, separate call to `screen_over_folds()`. A
+      second call would risk silently disagreeing with what was actually fit
+      if the two computations ever drift apart; reusing the exact value
+      `evaluate()` already produced guarantees the displayed table matches
+      reality.
 - [ ] Retire test coverage specific to the deleted page; add coverage for the
       new per-fold inclusion summary.
 
@@ -321,6 +433,11 @@ Verify current status in code before starting each — Jira may be stale
 - Module 3 (Portfolio Evaluation) and the scenario/risk parts of Module 4 —
   nothing exists for these yet anywhere in the codebase; needs its own plan.
 - Role-based access control — explicitly out of scope per the proposal.
+- Home tab redesign (past-run history, a downloadable report + inputs, saved
+  on an explicit action after allocation is done) — raised by the team, not
+  designed yet, not this sprint. Worth noting it lines up with "run
+  persistence," which the proposal already names as a UAT Round 3 focus item
+  — so this isn't scope creep, just not sequenced yet.
 
 ---
 
