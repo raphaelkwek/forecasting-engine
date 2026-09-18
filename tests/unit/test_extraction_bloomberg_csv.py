@@ -2,7 +2,11 @@
 
 import pandas as pd
 
-from forecasting_engine.extraction.bloomberg_csv import forward_fill, missing_row_report
+from forecasting_engine.extraction.bloomberg_csv import (
+    forward_fill,
+    missing_row_report,
+    read_export,
+)
 
 
 def test_a_missing_value_on_an_unreadable_date_is_reported_without_crashing():
@@ -12,6 +16,16 @@ def test_a_missing_value_on_an_unreadable_date_is_reported_without_crashing():
 
     assert len(report) == 1
     assert report.iloc[0]["Likely reason"] == "Unreadable date"
+
+
+def test_a_trailing_empty_metadata_field_does_not_leak_into_the_security():
+    # Real exports pad the row with a trailing empty field
+    # ("Security,SPX Index,") rather than leaving it bare.
+    data = b"Security,SPX Index,\nPeriod,D,\n,,\nDate,PX_LAST\n2024-01-02,100.0\n"
+
+    export = read_export("spx.csv", data)
+
+    assert export.security == "SPX Index"
 
 
 def _daily(values):

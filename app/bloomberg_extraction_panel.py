@@ -16,6 +16,7 @@ construction, whatever it's named.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Collection
 from dataclasses import dataclass, field
 
@@ -47,6 +48,12 @@ SIGNAL_MERGED_KEY = "signal_merged"
 SIGNAL_REPORT_KEY = "signal_report"
 FACTORS_KEY = "fama_french"
 _TARGET_EXPORTS_KEY = "_target_exports"
+_SIGNAL_EXPORTS_KEY = "_signal_exports"
+#: filename -> the Role/Field the user last picked for it, so navigating to
+#: another page and back doesn't lose the choice (a fresh upload resets the
+#: file_uploader widget itself, but this dict is plain session state).
+_TARGET_ROLE_CHOICES_KEY = "_target_role_choices"
+_TARGET_FIELD_CHOICES_KEY = "_target_field_choices"
 
 #: The cleaned, combined frame (and its own report) that Home, Models and
 #: Model Metrics read. Only updated when the user clicks "Use Updated Data" —
@@ -147,8 +154,11 @@ def render() -> None:
             TARGET_MERGED_KEY,
             TARGET_REPORT_KEY,
             _TARGET_EXPORTS_KEY,
+            _TARGET_ROLE_CHOICES_KEY,
+            _TARGET_FIELD_CHOICES_KEY,
             SIGNAL_MERGED_KEY,
             SIGNAL_REPORT_KEY,
+            _SIGNAL_EXPORTS_KEY,
             COMMITTED_KEY,
             COMMITTED_REPORT_KEY,
             COMMITTED_TARGETS_KEY,
@@ -211,8 +221,44 @@ def render() -> None:
             )
             st.session_state[SIGNAL_MERGED_KEY] = result.merged
             st.session_state[SIGNAL_REPORT_KEY] = result.report
+            st.session_state[_SIGNAL_EXPORTS_KEY] = result.exports
 
     signal_merged = st.session_state.get(SIGNAL_MERGED_KEY)
+
+    # Uploading the same file to both merges its data in twice, once under
+    # each role's own label — caught here before it happens.
+    target_names = {e.filename for e in st.session_state.get(_TARGET_EXPORTS_KEY, [])}
+    signal_names = {e.filename for e in st.session_state.get(_SIGNAL_EXPORTS_KEY, [])}
+    overlapping_names = sorted(target_names & signal_names)
+    if overlapping_names:
+        st.error(
+            "The same file is uploaded as both a target and a signal: "
+            f"{', '.join(overlapping_names)}. Remove it from one side — uploading it to "
+            "both merges its data in twice.",
+            icon=":material/error:",
+        )
+        st.stop()
+
+    # A target and a signal can also collide under different filenames, if
+    # they resolve to the same column name (e.g. the same security's field,
+    # re-exported separately, or a field left over in the target file that
+    # wasn't picked for the target role). Uncaught, pandas silently suffixes
+    # both to _x/_y instead of keeping either. Relabelled by filename instead
+    # — the same fallback bloomberg_csv.merge() already uses when two target
+    # files share a security.
+    if target_merged is not None and signal_merged is not None:
+        column_overlap = sorted(
+            (set(target_merged.columns) & set(signal_merged.columns))
+            - {bloomberg_csv.DATE_COLUMN}
+        )
+        if column_overlap:
+            signal_merged = _deconflict_signal_columns(
+                signal_merged, st.session_state.get(_SIGNAL_EXPORTS_KEY, []), column_overlap
+            )
+            st.caption(
+                f"Renamed {len(column_overlap)} signal column(s) that matched a target "
+                f"column name, using the file name instead: {', '.join(column_overlap)}."
+            )
 
     # Falling back to session state (rather than returning when nothing was
     # just uploaded) is what keeps this page showing the last merge instead
@@ -342,10 +388,24 @@ def _render_target_uploader(
         icon=":material/check_circle:",
     )
 
+    # Mirrors bloomberg_csv.merge()'s own collision handling: when two target
+    # files share a security (SPX price and SPX total return are both "SPX
+    # Index"), merge() relabels both by filename instead — so the column this
+    # loop looks up in the merged frame has to be computed the same way, or a
+    # two-file security collision reports "couldn't find" instead of letting
+    # the same-security-two-roles check below ever see it.
+    own_labels = [bloomberg_csv.label(e.security, e.filename) for e in exports]
+    label_counts = Counter(own_labels)
+
+    role_choices: dict[str, TargetRole | None] = st.session_state.setdefault(
+        _TARGET_ROLE_CHOICES_KEY, {}
+    )
+    field_choices: dict[str, str] = st.session_state.setdefault(_TARGET_FIELD_CHOICES_KEY, {})
+
     resolved: dict[TargetRole, str] = {}
     resolved_by: dict[TargetRole, str] = {}
-    for export in exports:
-        lbl = bloomberg_csv.label(export.security, export.filename)
+    role_by_security: dict[str, TargetRole] = {}
+    for export, lbl in zip(exports, own_labels, strict=True):
         fields = [
             c[len(lbl) + 1 :]
             for c in export.frame.columns
@@ -354,9 +414,11 @@ def _render_target_uploader(
         if not fields:
             continue
 
-        guessed_role = TARGET_TICKERS.get(export.security)
+        remembered_role = role_choices.get(
+            export.filename, TARGET_TICKERS.get(export.security)
+        )
         role_options = list(TargetRole)
-        role_idx = role_options.index(guessed_role) if guessed_role is not None else None
+        role_idx = role_options.index(remembered_role) if remembered_role is not None else None
 
         name_col, role_col, field_col = st.columns([2, 1, 1])
         name_col.caption(
@@ -369,17 +431,32 @@ def _render_target_uploader(
             format_func=lambda r: "Equity target" if r == TargetRole.EQUITY else "Bond target",
             key=f"target_role_{export.filename}_{version}",
         )
-        default_field_idx = fields.index(PREFERRED_FIELD) if PREFERRED_FIELD in fields else 0
+        role_choices[export.filename] = role
+
+        remembered_field = field_choices.get(export.filename)
+        if remembered_field in fields:
+            default_field_idx = fields.index(remembered_field)
+        elif PREFERRED_FIELD in fields:
+            default_field_idx = fields.index(PREFERRED_FIELD)
+        else:
+            default_field_idx = 0
         field_choice = field_col.selectbox(
             "Field",
             fields,
             index=default_field_idx,
             key=f"target_field_{export.filename}_{version}",
         )
+        field_choices[export.filename] = field_choice
 
         if role is None:
+            st.warning(
+                f"{export.filename!r} has no role picked — it still merges into the committed "
+                "data and would ride along as an ordinary signal. Pick a role or remove the file.",
+                icon=":material/warning:",
+            )
             continue
-        resolved_col = f"{lbl}_{field_choice}"
+        merged_label = bloomberg_csv.label("", export.filename) if label_counts[lbl] > 1 else lbl
+        resolved_col = f"{merged_label}_{field_choice}"
         if resolved_col not in merged.columns:
             st.error(
                 f"{export.filename}: couldn't find {resolved_col!r} in the merged target "
@@ -393,10 +470,40 @@ def _render_target_uploader(
             )
             resolved.pop(role, None)
             continue
+        security_key = export.security.strip().casefold()
+        prior_role = role_by_security.get(security_key)
+        if security_key and prior_role is not None and prior_role != role:
+            st.error(
+                f"{export.security!r} is set as both the {prior_role.value} and {role.value} "
+                "target — a security can't fill both roles. Upload the actual bond/equity "
+                "index instead of reusing the same file."
+            )
+            continue
+        if security_key:
+            role_by_security[security_key] = role
         resolved_by[role] = export.filename
         resolved[role] = resolved_col
 
     return resolved, merged
+
+
+def _deconflict_signal_columns(
+    signal_merged: pd.DataFrame,
+    signal_exports: list[BloombergCsvExport],
+    colliding: Collection[str],
+) -> pd.DataFrame:
+    """Rename signal columns that collide with a target column, using the
+    file's own name instead of its security — the same fallback
+    ``bloomberg_csv.merge()`` uses when two files share a security label.
+    """
+    renames = {}
+    for export in signal_exports:
+        lbl = bloomberg_csv.label(export.security, export.filename)
+        distinct = bloomberg_csv.label("", export.filename)
+        for col in colliding:
+            if col in signal_merged.columns and col.startswith(f"{lbl}_"):
+                renames[col] = distinct + col[len(lbl) :]
+    return signal_merged.rename(columns=renames)
 
 
 def _combine(target: pd.DataFrame | None, signal: pd.DataFrame | None) -> pd.DataFrame:

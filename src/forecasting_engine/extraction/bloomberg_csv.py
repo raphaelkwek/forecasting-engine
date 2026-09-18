@@ -225,7 +225,9 @@ def _security(meta_lines: list[str]) -> str:
     for line in meta_lines:
         key, _, value = line.partition(",")
         if key.strip().lower() == "security":
-            return value.strip()
+            # Real exports pad the row with a trailing empty field
+            # ("Security,SPX Index,") — take only the value itself.
+            return value.split(",")[0].strip()
     return ""
 
 

@@ -384,6 +384,14 @@ def test_an_unrecognised_ticker_leaves_the_role_unset_but_does_not_break_the_pag
     assert labels["Rows"] == "2"
 
 
+def test_an_unassigned_target_file_is_warned_about(page):
+    mystery = export("ZZZ Index", ["1/2/2020,1.0", "1/3/2020,2.0"])
+    result = upload_targets(page, [("mystery.csv", mystery, "text/csv")])
+
+    assert "no role picked" in texts(result.warning)
+    assert "mystery.csv" in texts(result.warning)
+
+
 def test_the_field_defaults_to_total_return_when_present(page):
     total_return = (
         b"Security,SPX Index,\nPeriod,D,\n,,\n"
@@ -394,6 +402,44 @@ def test_the_field_defaults_to_total_return_when_present(page):
 
     # Selectbox 0 is the role, selectbox 1 is the field.
     assert result.selectbox[1].value == "TOT_RETURN_INDEX_GROSS_DVDS"
+
+
+def test_a_target_and_signal_resolving_to_the_same_column_is_renamed_by_file(page):
+    # Different filenames, same security and field — the filename check
+    # can't catch this, but the resulting column name still collides. Rather
+    # than rejecting it, the signal's column is relabelled by its own
+    # filename instead, the same fallback bloomberg_csv.merge() uses when two
+    # target files collide.
+    spx = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
+    spx_again = export("SPX Index", ["1/2/2020,105.0", "1/3/2020,106.0"])
+
+    upload_targets(page, [("spx-target.csv", spx, "text/csv")])
+    result = upload(page, [("spx-signal-copy.csv", spx_again, "text/csv")])
+
+    assert not result.error
+    assert "Renamed 1 signal column" in texts(result.caption)
+    assert "SPX_Index_PX_LAST" in texts(result.caption)
+
+    commit_button = next(b for b in result.button if b.label == "Use Updated Data")
+    result = commit_button.click().run()
+
+    committed = result.session_state["extraction_committed"]
+    assert "SPX_Index_PX_LAST" in committed.columns
+    assert "spx_signal_copy_PX_LAST" in committed.columns
+
+
+def test_a_chosen_role_and_field_are_remembered_outside_the_widget(page):
+    # Stored in plain session state, not just the widget's own key, so a
+    # fresh script run on a different page (which never saw this widget
+    # instance before) still has it to fall back on.
+    legatruu = export(
+        "LEGATRUU Index", ["1/2/2020,100.0", "1/3/2020,101.0"], fields="PX_BID"
+    )
+    result = upload_targets(page, [("bond.csv", legatruu, "text/csv")])
+    result = result.selectbox[0].select(TargetRole.BOND).run()
+
+    assert result.session_state["_target_role_choices"]["bond.csv"] == TargetRole.BOND
+    assert result.session_state["_target_field_choices"]["bond.csv"] == "PX_BID"
 
 
 def test_two_files_set_to_the_same_role_is_reported_as_an_error(page):
@@ -408,6 +454,37 @@ def test_two_files_set_to_the_same_role_is_reported_as_an_error(page):
     result = result.selectbox[2].select(TargetRole.EQUITY).run()
 
     assert "same role" in texts(result.error)
+
+
+def test_the_same_security_cannot_fill_both_target_roles(page):
+    # Two files for the same security (SPX price and SPX total return) —
+    # assigning one to Equity and the other to Bond would silently make
+    # "the bond target" just be SPX again, so it's rejected instead.
+    spx_price = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"], fields="PX_LAST")
+    spx_total_return = export(
+        "SPX Index", ["1/2/2020,99.0", "1/3/2020,100.0"], fields="TOT_RETURN_INDEX_GROSS_DVDS"
+    )
+    result = upload_targets(
+        page,
+        [
+            ("spx_price.csv", spx_price, "text/csv"),
+            ("spx_total_return.csv", spx_total_return, "text/csv"),
+        ],
+    )
+    result = result.selectbox[2].select(TargetRole.BOND).run()
+
+    assert "can't fill both roles" in texts(result.error)
+    assert "SPX Index" in texts(result.error)
+
+
+def test_the_same_filename_in_both_uploads_is_rejected(page):
+    spx = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
+
+    upload_targets(page, [("spx.csv", spx, "text/csv")])
+    result = upload(page, [("spx.csv", spx, "text/csv")])
+
+    assert "both a target and a signal" in texts(result.error)
+    assert "spx.csv" in texts(result.error)
 
 
 def test_target_and_signal_files_combine_and_commit_with_resolved_targets(page):
