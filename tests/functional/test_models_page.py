@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from forecasting_engine.extraction.targets import TargetRole
 from forecasting_engine.models.base import ModelDescription
 from forecasting_engine.reporting.model_metrics import (
     FoldTerms,
@@ -42,6 +43,11 @@ def _committed() -> pd.DataFrame:
     )
 
 
+#: The committed data's target, resolved the way the page requires (Task
+#: 4.2) — every helper below seeds this rather than a free column pick.
+_TARGETS = {TargetRole.EQUITY: "SPX_Index_PX_LAST"}
+
+
 def _result(screening: ScreeningSummary | None) -> ModelRunResult:
     return ModelRunResult(
         ic=0.05,
@@ -56,8 +62,9 @@ def _result(screening: ScreeningSummary | None) -> ModelRunResult:
 def _page(screening: ScreeningSummary | None) -> AppTest:
     app = AppTest.from_file(str(PAGE), default_timeout=30)
     app.session_state["extraction_committed"] = _committed()
-    app.session_state["polynomial_result"] = _result(screening)
-    app.session_state["polynomial_description"] = ModelDescription(
+    app.session_state["extraction_committed_targets"] = _TARGETS
+    app.session_state["polynomial_result_equity"] = _result(screening)
+    app.session_state["polynomial_description_equity"] = ModelDescription(
         name="Derived polynomial", terms=("VIX_Index_PX_LAST",), coefficients=(0.2,)
     )
     return app.run()
@@ -152,6 +159,7 @@ def splitter_calls(monkeypatch):
 def _bare_page() -> AppTest:
     app = AppTest.from_file(str(PAGE), default_timeout=30)
     app.session_state["extraction_committed"] = _committed()
+    app.session_state["extraction_committed_targets"] = _TARGETS
     return app.run()
 
 
@@ -222,9 +230,10 @@ def _function_page(
     fn = from_description(DERIVED, origin=Origin.DERIVED, target=target, horizon=horizon)
     app = AppTest.from_file(str(PAGE), default_timeout=30)
     app.session_state["extraction_committed"] = committed
-    app.session_state["polynomial_result"] = _result(None)
-    app.session_state["polynomial_description"] = DERIVED
-    app.session_state["polynomial_function"] = (
+    app.session_state["extraction_committed_targets"] = _TARGETS
+    app.session_state["polynomial_result_equity"] = _result(None)
+    app.session_state["polynomial_description_equity"] = DERIVED
+    app.session_state["polynomial_function_equity"] = (
         fn,
         dataset_fingerprint(committed if frame is None else frame),
     )
@@ -244,6 +253,86 @@ def test_a_stored_derived_function_is_headed_as_derived():
 
 def test_the_function_says_what_it_forecasts():
     assert "Forecasts: S&P 500, 5-day return" in _captions(_function_page())
+
+
+def test_no_target_resolved_shows_a_guiding_message_not_a_free_picker():
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = _committed()
+    # No "extraction_committed_targets" at all — nothing resolved on the Data page.
+    app.run()
+
+    assert not app.exception
+    assert any("No target resolved yet" in i.value for i in app.info)
+    assert not app.radio  # no "Target" picker, and no "Model family" either
+
+
+def test_only_the_resolved_targets_are_offered():
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = _committed()
+    app.session_state["extraction_committed_targets"] = {TargetRole.EQUITY: "SPX_Index_PX_LAST"}
+    app.run()
+
+    (target,) = [r for r in app.radio if r.label == "Target"]
+    assert list(target.options) == ["Equity — S&P 500 (total return)"]
+
+
+def test_fama_french_is_not_offered_for_the_bond_target():
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = _committed().rename(
+        columns={"SPX_Index_PX_LAST": "LBUSTRUU_Index_TOT_RETURN_INDEX_GROSS_DVDS"}
+    )
+    app.session_state["extraction_committed_targets"] = {
+        TargetRole.BOND: "LBUSTRUU_Index_TOT_RETURN_INDEX_GROSS_DVDS"
+    }
+    app.run()
+
+    (family,) = [r for r in app.radio if r.label == "Model family"]
+    assert "Fama-French 5-Factor" not in family.options
+
+
+def test_a_target_column_never_appears_as_a_signal_even_for_the_other_role():
+    # Both targets present: selecting Equity must not let the Bond column
+    # (or vice versa) ride along as a candidate signal.
+    committed = _committed().rename(
+        columns={"LUACOAS_Index_PX_LAST": "LBUSTRUU_Index_TOT_RETURN_INDEX_GROSS_DVDS"}
+    )
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = committed
+    app.session_state["extraction_committed_targets"] = {
+        TargetRole.EQUITY: "SPX_Index_PX_LAST",
+        TargetRole.BOND: "LBUSTRUU_Index_TOT_RETURN_INDEX_GROSS_DVDS",
+    }
+    app.run()
+
+    assert not app.exception
+    (mode,) = [r for r in app.radio if r.label == "Function source"]
+    # "Enter a function" is the default; the caption right above the formula
+    # box names every column offered as a signal.
+    captions = " ".join(c.value for c in app.caption)
+    assert "LBUSTRUU_Index_TOT_RETURN_INDEX_GROSS_DVDS" not in captions
+    assert "SPX_Index_PX_LAST" not in captions
+
+
+def test_switching_target_does_not_clobber_the_other_targets_result():
+    committed = _committed().rename(
+        columns={"LUACOAS_Index_PX_LAST": "LBUSTRUU_Index_TOT_RETURN_INDEX_GROSS_DVDS"}
+    )
+    app = AppTest.from_file(str(PAGE), default_timeout=30)
+    app.session_state["extraction_committed"] = committed
+    app.session_state["extraction_committed_targets"] = {
+        TargetRole.EQUITY: "SPX_Index_PX_LAST",
+        TargetRole.BOND: "LBUSTRUU_Index_TOT_RETURN_INDEX_GROSS_DVDS",
+    }
+    app.session_state["polynomial_result_equity"] = _result(None)
+    app.session_state["polynomial_description_equity"] = ModelDescription(
+        name="Derived polynomial", terms=("VIX_Index_PX_LAST",), coefficients=(0.2,)
+    )
+    app.run()
+
+    # Nothing about loading the Bond side of the page should touch the
+    # Equity result parked under its own namespaced key.
+    assert app.session_state["polynomial_result_equity"] is not None
+    assert "polynomial_result_bond" not in app.session_state
 
 
 def test_the_equation_is_typeset_with_labels():
@@ -323,7 +412,8 @@ def _page_with_terms(with_terms: int, folds: int = 10, description=DERIVED) -> A
     committed = _committed()
     app = AppTest.from_file(str(PAGE), default_timeout=30)
     app.session_state["extraction_committed"] = committed
-    app.session_state["polynomial_result"] = ModelRunResult(
+    app.session_state["extraction_committed_targets"] = _TARGETS
+    app.session_state["polynomial_result_equity"] = ModelRunResult(
         ic=0.05,
         oos_rank_ic=0.04,
         rmse=0.01,
@@ -331,8 +421,8 @@ def _page_with_terms(with_terms: int, folds: int = 10, description=DERIVED) -> A
         crash=CrashDiagnostics(recall=0.5, precision=0.5, f1=0.5, n_true_tail_days=4),
         terms=FoldTerms(folds=folds, with_terms=with_terms),
     )
-    app.session_state["polynomial_description"] = description
-    app.session_state["polynomial_function"] = (
+    app.session_state["polynomial_description_equity"] = description
+    app.session_state["polynomial_function_equity"] = (
         from_description(
             description, origin=Origin.DERIVED, target="SPX_Index_PX_LAST", horizon=5
         ),

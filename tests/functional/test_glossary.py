@@ -8,6 +8,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import glossary
+from forecasting_engine.extraction.targets import TargetRole
 from forecasting_engine.models.base import ModelDescription
 from forecasting_engine.reporting.model_metrics import ModelRunResult, ScreeningSummary
 from forecasting_engine.reporting.polynomial_function import (
@@ -56,9 +57,12 @@ def models_page() -> AppTest:
     committed = _committed()
     app = AppTest.from_file(str(MODELS_PAGE), default_timeout=30)
     app.session_state["extraction_committed"] = committed
-    app.session_state["polynomial_result"] = _result()
-    app.session_state["polynomial_description"] = description
-    app.session_state["polynomial_function"] = (
+    app.session_state["extraction_committed_targets"] = {
+        TargetRole.EQUITY: "SPX_Index_PX_LAST"
+    }
+    app.session_state["polynomial_result_equity"] = _result()
+    app.session_state["polynomial_description_equity"] = description
+    app.session_state["polynomial_function_equity"] = (
         from_description(
             description, origin=Origin.DERIVED, target="SPX_Index_PX_LAST", horizon=5
         ),
@@ -83,7 +87,7 @@ def _helps(app: AppTest) -> dict[str, str]:
 
 @pytest.mark.parametrize(
     "label",
-    ["Target price/level column", "Model family", "Forecast horizon"],
+    ["Target", "Model family", "Forecast horizon"],
 )
 def test_the_controls_that_name_a_concept_explain_it(models_page, label):
     assert label in _helps(models_page)
@@ -136,7 +140,7 @@ def _table(app: AppTest) -> str:
 
 def test_the_comparison_table_explains_every_column_it_can():
     app = AppTest.from_file(str(METRICS_PAGE), default_timeout=30)
-    app.session_state["polynomial_result"] = _result()
+    app.session_state["polynomial_result_equity"] = _result()
     app.run()
 
     table = _table(app)
@@ -153,7 +157,7 @@ def test_a_tooltip_is_escaped_so_it_cannot_break_the_table():
     # The hint is written into an HTML attribute; a quote in the wording would
     # otherwise end the attribute early.
     app = AppTest.from_file(str(METRICS_PAGE), default_timeout=30)
-    app.session_state["polynomial_result"] = _result()
+    app.session_state["polynomial_result_equity"] = _result()
     app.run()
 
     table = _table(app)

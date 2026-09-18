@@ -2,6 +2,7 @@ import math
 
 from forecasting_engine.reporting.model_metrics import (
     NO_CONFIG_SEARCH,
+    NOT_APPLICABLE,
     NOT_RUN,
     Cell,
     ModelRunResult,
@@ -83,3 +84,23 @@ def test_nan_metric_renders_as_an_em_dash():
     row = build_metrics_rows(results)[1]
 
     assert row["Crash Recall"] == Cell("—")
+
+
+def test_an_inapplicable_model_with_no_result_renders_as_not_applicable():
+    rows = build_metrics_rows({}, inapplicable={"FF5 Benchmark"})
+
+    ff5_row = rows[0]
+    assert ff5_row["Model"] == Cell("FF5 Benchmark")
+    assert ff5_row["IC"] == Cell(NOT_APPLICABLE)
+    assert ff5_row["PBO"] == Cell(NOT_APPLICABLE)
+    # Everything else still renders as the ordinary "not run".
+    assert rows[1]["IC"] == Cell(NOT_RUN)
+
+
+def test_an_inapplicable_model_with_a_result_still_shows_the_result():
+    # Shouldn't arise in practice (the page shouldn't offer to run it), but
+    # this function doesn't second-guess a result it's handed.
+    results = {"FF5 Benchmark": _result(0.02, 0.025, 0.02, None)}
+    rows = build_metrics_rows(results, inapplicable={"FF5 Benchmark"})
+
+    assert rows[0]["OOS Rank IC"] == Cell("0.0250")

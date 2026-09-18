@@ -1,6 +1,8 @@
 # Ingestion Consolidation & Sprint 2 Fixes — Build Spec
 
-**Status:** In progress. Phase 1 is done; see the progress log at the bottom. **Date:** 17 Sep 2026.
+**Status:** In progress. Everything is done except Phase 6 (display polish,
+itself mostly superseded by a separate ticket — see the progress log at the
+bottom). **Date:** 17 Sep 2026.
 
 **Goal:** Fix the ingestion-side issues found by walking the codebase against the
 sponsor-approved proposal and validation-metrics documents (accept both CSV and
@@ -400,30 +402,62 @@ Make the split structural and explicit, with detection as a convenience.
       the browser (both upload sections render correctly, no console/server
       errors beyond Streamlit's own offline telemetry calls).
 
-### Task 4.2 — Models page: target-aware, not target-agnostic
+### Task 4.2 — Models page: target-aware, not target-agnostic — DONE
 
-- [ ] Replace the free `st.selectbox` on `4_Models.py` with a radio/selector
-      over exactly the targets confirmed on the Data page ("Equity — S&P
-      500" / "Bond — AGG"), disabled for whichever wasn't found in the
-      committed upload.
-- [ ] Fama-French 5-Factor is an equity-only benchmark and is not designed to
-      predict bond returns, even though it will technically run and produce
-      numbers if asked to. Disable/hide that model-family radio option
-      whenever the Bond target is selected.
-- [ ] `POLYNOMIAL_RESULT_KEY` etc. in `4_Models.py` (and the duplicated
-      constants in `3_Model_Metrics.py`) are keyed only by model family today
-      — running the same family against a different target silently
-      overwrites the other target's stored result. Namespace these by target
-      (or have `ModelRunResult` carry its target).
-- [ ] On `3_Model_Metrics.py`, split the single comparison table into two
-      sections, Equity and Bond, each showing the existing `MODEL_ORDER` rows
-      for that target. A model that doesn't apply to a given target (FF5
-      under Bond) should render as something like "N/A — not applicable,"
-      distinct from "Not run" (which means "could apply, hasn't been tried
-      yet").
-- [ ] Extend functional/AppTest coverage to assert: FF5 is unavailable for
-      the bond target, switching targets doesn't clobber the other target's
-      stored result, and Model Metrics shows both sections correctly.
+Implemented against the app as it actually stands now, not as this plan
+originally described it — the pages were renamed (`4_Models.py` →
+`app/app_pages/3_Models.py`, `3_Model_Metrics.py` →
+`app/app_pages/4_Model_Metrics.py`) and substantially built out (plain-
+language factor labels, typeset equation rendering, a hover glossary, per-
+fold signal-inclusion reporting) by the "View Equity/Bond Index Polynomial
+Function" ticket, landed on this branch before this task started. Every
+change below is against that current code.
+
+- [x] Replaced the free `st.selectbox` on `3_Models.py` with `st.radio`
+      ("Target"), options built dynamically from whichever roles
+      `COMMITTED_TARGETS_KEY` actually resolved (`available_roles = [role
+      for role in TargetRole if role in target_columns]`) — a role with
+      nothing uploaded simply isn't offered, rather than shown disabled. No
+      target resolved at all shows a guiding `st.info` and stops, instead of
+      falling through to a free column picker.
+- [x] `signal_cols` now excludes **every** resolved target column
+      (`target_columns.values()`), not just the currently-selected one — this
+      closes the leak the Phase 5 progress notes flagged on the live data
+      (`SPX_Index_PX_BID` screened in as a signal for the SPX target itself
+      in 118/124 folds).
+- [x] Fama-French 5-Factor is dropped from the `family_options` list
+      whenever `role == TargetRole.BOND`, rather than disabled — same
+      "build the options list dynamically" approach as the target selector.
+- [x] Every per-family session-state key (`POLYNOMIAL_RESULT_KEY`,
+      `..._DESCRIPTION_KEY`, `FAMAFRENCH_*`, `ML_*`, and
+      `POLYNOMIAL_FUNCTION_KEY`, which the original plan didn't anticipate
+      since it postdates this plan) is now namespaced by role via a shared
+      `_role_key(base, role) -> f"{base}_{role.value}"` helper, duplicated
+      into `4_Model_Metrics.py` the same way the base key constants already
+      were (a digit-prefixed filename still can't be imported from).
+- [x] `reporting/model_metrics.py::build_metrics_rows()` gained an
+      `inapplicable: Collection[str] = ()` parameter — a model named there
+      renders `NOT_APPLICABLE` ("N/A — not applicable") instead of `NOT_RUN`
+      when it has no result. `4_Model_Metrics.py` now loops over `TargetRole`
+      rendering one section per role, each with its own `_results_for(role)`
+      and `INAPPLICABLE[role]` (only `{"FF5 Benchmark"}` for Bond).
+- [x] Tests: `tests/unit/test_model_metrics.py` — 2 new tests for
+      `inapplicable`. `tests/functional/test_models_page.py` — 5 new tests
+      (no-target guidance message, only-resolved-roles offered, FF5 absent
+      for Bond, a target never appearing as a signal for the other role,
+      switching target doesn't clobber the other's stored result); existing
+      helpers updated to seed `extraction_committed_targets` and the
+      role-namespaced keys. `tests/functional/test_glossary.py` — updated
+      for the renamed "Target" control and the namespaced keys.
+      `tests/functional/test_model_metrics_page.py` — new file, 6 tests for
+      the two-section rendering (both sections always shown, empty-state per
+      section, results don't leak across sections, FF5 reads "N/A — not
+      applicable" under Bond vs. "Not run" under Equity).
+
+Full suite green, `ruff check .` clean, verified in the browser (Models page
+correctly shows the "no target resolved" guidance with nothing committed;
+Model Metrics correctly shows both "Equity — S&P 500" and "Bond — US
+Aggregate" sections).
 
 ### Task 4.3 — lock the forecast horizon to the two values the spec actually asks for
 
@@ -535,7 +569,7 @@ Verify current status in code before starting each — Jira may be stale
 
 ---
 
-## Progress log — what was actually done (as of 18 Sep, after Phase 4.3)
+## Progress log — what was actually done (as of 18 Sep, after Task 4.2)
 
 The build didn't follow the phase numbers. This records what landed, what was
 done that the plan didn't ask for, and what's still open.
@@ -572,6 +606,45 @@ done that the plan didn't ask for, and what's still open.
   lag lives in an "Advanced: lag-shift audit" section. **Tests: 267 → 274.** The
   embargo test captures what `PurgedWalkForward` is really built with and fails
   on the old `embargo = horizon`.
+- **Unplanned: the "View Equity/Bond Index Polynomial Function" ticket,**
+  `5cee4b8`–`d1f5606`. Landed on the `feature-raphael-...` branch, later
+  fast-forward-merged into `Toby` (external to this plan's own commits).
+  Covers what this plan's Phase 6 asked for and more: plain-language factor
+  labels (`reporting/factor_labels.py`), typeset equation rendering
+  (`reporting/polynomial_function.py`), a hover glossary (`app/glossary.py`),
+  per-fold "how many folds kept any term" reporting, and
+  `docs/validation-review.md` — an independent correctness audit (leakage
+  controls, a measured null distribution for the promotion gate, a measured
+  screening false-pass rate, a Fama-French unit-scale bug). Renamed
+  `4_Models.py` → `app/app_pages/3_Models.py` and `3_Model_Metrics.py` →
+  `app/app_pages/4_Model_Metrics.py` along the way — every later reference in
+  this plan to the old filenames means the new ones.
+- **Phase 4.1, `88721f7`.** Data page split into separate "Target index
+  files" and "Signal files" uploaders; ticker detection pre-fills the role,
+  always overridable; `COMMITTED_TARGETS_KEY` records whatever was resolved.
+  **Tests: 274 → 301** (functional suite rewritten for the two-uploader
+  shape plus 6 new target-specific tests).
+- **Phase 2, `ffb6f0d`.** `forward_fill()`'s signature changed to `(frame,
+  max_gap, *, exclude=())`; every signal gap fills automatically, targets
+  never do. `_render_gap_review()` is now a summary of what's still missing,
+  not an editable table — `gap_decisions_*`, the checkbox column, and
+  "Clean all"/"Include all" are gone. **Tests: 301 → 304.**
+- **Task 4.2.** `3_Models.py`'s target selector is now `st.radio` over
+  exactly the resolved roles (no free column picker); `signal_cols` excludes
+  every resolved target, not just the active one — this is what actually
+  fixes the `SPX_Index_PX_BID`-as-a-signal leak noted below. FF5 dropped
+  from the model-family options for the bond target. Every per-family
+  session-state key namespaced by role via `_role_key()`.
+  `reporting/model_metrics.py::build_metrics_rows()` gained `inapplicable=`;
+  `4_Model_Metrics.py` renders one section per `TargetRole`. **Tests: 304 →
+  317** (2 unit, 5 functional on `3_Models.py`, a new
+  `test_model_metrics_page.py` with 6).
+
+**Checks after Task 4.2:** `uv run pytest` shows 317 passed and `uv run ruff
+check .` passes. Verified in the browser: the Data page's two upload
+sections render; the Models page correctly shows "No target resolved yet"
+with nothing committed; the Model Metrics page correctly shows both
+"Equity — S&P 500" and "Bond — US Aggregate" sections.
 
 **Checks after Phase 4.3:** `uv run pytest` shows 274 passed and `uv run ruff
 check .` passes. Phase 5 was run end to end on four real exports (124 folds, the
@@ -585,26 +658,39 @@ polynomial fits, and no training label reaches its test window across 123 folds
 on the app's defaults. That run also covers Phase 1's manual check, which was
 previously outstanding.
 
-**Not started:** 4.1 (split target and signal uploads), Phase 2 (auto
-forward-fill, signals only; `gap_decisions_*` and "Clean all" are still there),
-4.2 (target-aware Models and Model Metrics), and Phase 6.
+**Not started:** Phase 6 in its original form — superseded by the polynomial-
+display ticket above, which covers the same ground; what's left (if anything)
+is for the team to spot-check against the original Phase 6 checklist above.
+Task 1.3 (resuming from a previously-merged file) stays deferred, per the
+team's own instruction, pending a team discussion.
 
-**Found along the way, for the team — not fixed, outside this plan:**
+**Found along the way, for the team — status as of Task 4.2:**
 
-- **An implausible model IC.** Deriving a polynomial for SPX 5-day returns from
-  the SPX and Global Aggregate exports reports an OOS rank IC of about 0.33. No
-  single signal explains it — each scores between −0.03 and +0.04 on its own.
-  It is **not** caused by the horizon fix (0.322 before, 0.340 after, same
-  settings) and no training label leaks. The likely cause is fitting raw price
-  *levels*, which trend, inside short 120-day windows. Worth checking before any
-  IC is shown to the sponsor.
-- **The target's own sibling field is screened in as a signal.** With SPX as
-  the target, `SPX_Index_PX_BID` — the same index's bid price — was fit on in
-  118 of 124 folds. This is the leak Phase 4.1's structural target/signal split
-  removes, now visible in the Phase 5 table.
-- **Screening barely filters.** On 120-day windows almost every signal passes
-  `INCLUSION_THRESHOLD = 0.02` in about 95% of folds. The threshold is blocked in
-  Section 0; recorded as evidence for that decision.
-- **`fixtures.py` output is mislabelled by the live pipeline.** It writes a flat
-  fixed-contract CSV with no `Security` metadata, so every column comes back
-  prefixed with the filename. Same root cause as deferred Task 1.3.
+- **An implausible model IC — still open, not caused by anything in this
+  plan.** Deriving a polynomial for SPX 5-day returns reported an OOS rank
+  IC of about 0.33 when first noticed; `docs/validation-review.md` (part of
+  the polynomial-display ticket, independent of this plan) since re-measured
+  the out-of-sample Rank IC at roughly +0.15 on the bond target and put it
+  through seven leakage controls, all clean — real structure, not a pipeline
+  artefact, though the two numbers weren't measured under identical
+  settings. Its Open Item 1 is more urgent than it looked here: the
+  promotion gate itself (`OOS_RANK_IC_GATE`, sponsor-confirmed at 0.02) lets
+  a model with zero real skill pass roughly one time in three, from
+  sampling noise alone — worth the team's attention ahead of anything shown
+  to the sponsor.
+- **The target's own sibling field screened in as a signal — fixed in Task
+  4.2.** With SPX as the target, `SPX_Index_PX_BID` was fit on in 118 of 124
+  folds before the structural target/signal split existed. `signal_cols`
+  now excludes every resolved target column, not just the active one, which
+  is what actually closes this (Phase 4.1 alone made the *uploads*
+  structural; this is the exclusion that makes the *modelling* structural).
+- **Screening barely filters — still open, quantified more precisely since
+  this was first noted.** `docs/validation-review.md` measured it directly:
+  a pure-noise signal clears `INCLUSION_THRESHOLD = 0.02` 84% of the time on
+  a 120-day window. The threshold itself is still blocked in Section 0
+  pending sponsor input; this number is evidence for that conversation, not
+  a reason to change it unilaterally.
+- **`fixtures.py` output is mislabelled by the live pipeline — still open.**
+  It writes a flat fixed-contract CSV with no `Security` metadata, so every
+  column comes back prefixed with the filename. Same root cause as deferred
+  Task 1.3.

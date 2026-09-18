@@ -6,16 +6,19 @@ run-store design.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 
 from forecasting_engine.validation.crash import CrashDiagnostics
 from forecasting_engine.validation.gates import OOS_RANK_IC_GATE, PBO_GATE
 
 MODEL_ORDER: tuple[str, ...] = ("FF5 Benchmark", "Polynomial", "Machine Learning")
-"""a missing model still gets a row, showing "Not run"."""
+"""a missing model still gets a row, showing "Not run" (or "N/A — not
+applicable" if the caller names it inapplicable for this target — see
+``build_metrics_rows``)."""
 
 NOT_RUN = "Not run"
+NOT_APPLICABLE = "N/A — not applicable"
 NO_CONFIG_SEARCH = "N/A — no configuration search"
 
 _COLUMNS: tuple[str, ...] = (
@@ -91,16 +94,32 @@ class ModelRunResult:
 
 
 def build_metrics_rows(
-    results: Mapping[str, ModelRunResult], decimals: int = 4
+    results: Mapping[str, ModelRunResult],
+    decimals: int = 4,
+    *,
+    inapplicable: Collection[str] = (),
 ) -> list[dict[str, Cell]]:
     """One row per name in MODEL_ORDER, always — a model absent from
-    ``results`` renders as "Not run" rather than being omitted."""
-    return [_row(name, results.get(name), decimals) for name in MODEL_ORDER]
+    ``results`` renders as "Not run", unless it's named in ``inapplicable``
+    (e.g. Fama-French for a bond target — it isn't designed to predict bond
+    returns even though it would technically run), in which case it renders
+    as "N/A — not applicable" instead. A model *with* a result is always
+    shown as its result, regardless of ``inapplicable`` — that combination
+    shouldn't arise (the page shouldn't offer to run it), but this function
+    doesn't second-guess a result it's handed.
+    """
+    return [
+        _row(name, results.get(name), decimals, applicable=name not in inapplicable)
+        for name in MODEL_ORDER
+    ]
 
 
-def _row(name: str, result: ModelRunResult | None, decimals: int) -> dict[str, Cell]:
+def _row(
+    name: str, result: ModelRunResult | None, decimals: int, *, applicable: bool = True
+) -> dict[str, Cell]:
     if result is None:
-        return {"Model": Cell(name)} | {col: Cell(NOT_RUN) for col in _COLUMNS}
+        text = NOT_RUN if applicable else NOT_APPLICABLE
+        return {"Model": Cell(name)} | {col: Cell(text) for col in _COLUMNS}
 
     can_be_gated = result.pbo is not None
     oos_rank_ic_cell = (

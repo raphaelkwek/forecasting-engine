@@ -15,6 +15,7 @@ import bloomberg_extraction_panel
 import glossary
 import ui
 from forecasting_engine.extraction.bloomberg_csv import DATE_COLUMN
+from forecasting_engine.extraction.targets import TargetRole
 from forecasting_engine.ingest.align import align_and_lag
 from forecasting_engine.models.base import ModelDescription
 from forecasting_engine.models.boosted import BoostedConfigError, run_boosted
@@ -57,6 +58,18 @@ ML_DESCRIPTION_KEY = "ml_description"
 #: The polynomial last run, as ``(PolynomialFunction, dataset_fingerprint)``.
 POLYNOMIAL_FUNCTION_KEY = "polynomial_function"
 
+#: Every result/description/function key above is namespaced by target role
+#: (Task 4.2) so switching targets doesn't overwrite the other target's
+#: stored result — two independent forecasting problems share this page.
+TARGET_LABELS: dict[TargetRole, str] = {
+    TargetRole.EQUITY: "Equity — S&P 500 (total return)",
+    TargetRole.BOND: "Bond — US Aggregate (total return)",
+}
+
+
+def _role_key(base: str, role: TargetRole) -> str:
+    return f"{base}_{role.value}"
+
 #: The forecast horizons the validation framework asks for, reported separately
 #: and never averaged.
 HORIZONS: tuple[int, ...] = (1, 5)
@@ -84,19 +97,45 @@ if merged is None:
     st.info('No data committed yet — click "Use Updated Data" on the Data page first.')
     st.stop()
 
-numeric_cols = [c for c in merged.columns if c != DATE_COLUMN and merged[c].dtype.kind in "fi"]
-price_col = st.selectbox(
-    "Target price/level column", numeric_cols, help=glossary.term("Target")
+# Which columns are targets is a structural fact from ingestion (Task 4.1),
+# not a free pick here — this is what stops a target ending up modelled as
+# its own signal (e.g. SPX's own bid price screened in as a predictor for
+# SPX itself, seen on the live data before this was fixed).
+target_columns: dict[TargetRole, str] = st.session_state.get(
+    bloomberg_extraction_panel.COMMITTED_TARGETS_KEY, {}
 )
-signal_cols = [c for c in numeric_cols if c != price_col]
-
-if not price_col:
-    st.info("Need at least a price column to model.")
+if not target_columns:
+    st.info(
+        "No target resolved yet — confirm at least one target index on the Data "
+        'page (Target index files), then commit with "Use Updated Data".'
+    )
     st.stop()
 
+available_roles = [role for role in TargetRole if role in target_columns]
+role = st.radio(
+    "Target",
+    available_roles,
+    format_func=lambda r: TARGET_LABELS[r],
+    horizontal=True,
+    help=glossary.term("Target"),
+)
+price_col = target_columns[role]
+
+numeric_cols = [c for c in merged.columns if c != DATE_COLUMN and merged[c].dtype.kind in "fi"]
+# Every resolved target is excluded, not just the one currently selected —
+# otherwise picking Equity as the target would still let the Bond column
+# (or vice versa) ride along as a candidate signal.
+signal_cols = [c for c in numeric_cols if c not in target_columns.values()]
+
+family_options = ["Polynomial", "Fama-French 5-Factor", "Machine Learning"]
+if role == TargetRole.BOND:
+    # FF5 is an equity-factor benchmark, not designed to predict bond
+    # returns — it would technically run and produce numbers, so it's kept
+    # off the menu here rather than left to produce a meaningless result.
+    family_options = [f for f in family_options if f != "Fama-French 5-Factor"]
 family = st.radio(
     "Model family",
-    ["Polynomial", "Fama-French 5-Factor", "Machine Learning"],
+    family_options,
     horizontal=True,
     help=glossary.term("Model family"),
 )
@@ -155,7 +194,8 @@ description: ModelDescription | None = None
 origin: Origin | None = None
 
 if family == "Polynomial":
-    result_key, description_key = POLYNOMIAL_RESULT_KEY, POLYNOMIAL_DESCRIPTION_KEY
+    result_key = _role_key(POLYNOMIAL_RESULT_KEY, role)
+    description_key = _role_key(POLYNOMIAL_DESCRIPTION_KEY, role)
 
     if not signal_cols:
         st.info("Need at least one other signal column, alongside the price column, to model.")
@@ -214,7 +254,8 @@ if family == "Polynomial":
                     st.error(str(exc))
 
 elif family == "Fama-French 5-Factor":
-    result_key, description_key = FAMAFRENCH_RESULT_KEY, FAMAFRENCH_DESCRIPTION_KEY
+    result_key = _role_key(FAMAFRENCH_RESULT_KEY, role)
+    description_key = _role_key(FAMAFRENCH_DESCRIPTION_KEY, role)
 
     st.subheader("Fama-French five-factor benchmark")
     factor_file = st.session_state.get(bloomberg_extraction_panel.FACTORS_KEY)
@@ -243,7 +284,8 @@ elif family == "Fama-French 5-Factor":
             st.error(str(exc))
 
 else:
-    result_key, description_key = ML_RESULT_KEY, ML_DESCRIPTION_KEY
+    result_key = _role_key(ML_RESULT_KEY, role)
+    description_key = _role_key(ML_DESCRIPTION_KEY, role)
 
     if not signal_cols:
         st.info("Need at least one other signal column, alongside the price column, to model.")
@@ -360,7 +402,10 @@ if result is not None and description is not None:
             horizon=int(horizon),
             columns=panel.signals,
         )
-        st.session_state[POLYNOMIAL_FUNCTION_KEY] = (fn, dataset_fingerprint(merged))
+        st.session_state[_role_key(POLYNOMIAL_FUNCTION_KEY, role)] = (
+            fn,
+            dataset_fingerprint(merged),
+        )
     st.success("Run complete — see Model Metrics for the full comparison.")
 
 if result_key in st.session_state:
@@ -399,9 +444,10 @@ if result_key in st.session_state:
         help=glossary.term("Crash diagnostics"),
     )
 
-    if family == "Polynomial" and POLYNOMIAL_FUNCTION_KEY in st.session_state:
+    polynomial_function_key = _role_key(POLYNOMIAL_FUNCTION_KEY, role)
+    if family == "Polynomial" and polynomial_function_key in st.session_state:
         _show_polynomial_function(
-            *st.session_state[POLYNOMIAL_FUNCTION_KEY], getattr(result, "terms", None)
+            *st.session_state[polynomial_function_key], getattr(result, "terms", None)
         )
     else:
         _show_fitted_terms(description, is_ml=family == "Machine Learning")
