@@ -75,6 +75,21 @@ _LOGGED_KEY = "_logged_bloomberg_merge"
 #: drop whatever files they were showing, instead of re-displaying them.
 _UPLOADER_VERSION_KEY = "_bloomberg_uploader_version"
 
+#: Matches app_pages/3_Models.py's result-key constants and role-namespacing
+#: (``_role_key``) — duplicated rather than imported, same reason as
+#: 4_Model_Metrics.py: a page filename starting with a digit isn't a valid
+#: Python module name. Old results are stale once the data they were fit on
+#: is cleared, so "Clear Data" clears these too.
+_MODEL_RESULT_BASE_KEYS = (
+    "polynomial_result",
+    "polynomial_description",
+    "polynomial_function",
+    "famafrench_result",
+    "famafrench_description",
+    "ml_result",
+    "ml_description",
+)
+
 
 def _fmt(date) -> str:
     """A date for display: dd/mm/yyyy, no time component."""
@@ -165,6 +180,9 @@ def render() -> None:
             _LOGGED_KEY,
         ):
             st.session_state.pop(key, None)
+        for base in _MODEL_RESULT_BASE_KEYS:
+            for role in TargetRole:
+                st.session_state.pop(f"{base}_{role.value}", None)
         st.session_state[_UPLOADER_VERSION_KEY] = (
             st.session_state.get(_UPLOADER_VERSION_KEY, 0) + 1
         )
