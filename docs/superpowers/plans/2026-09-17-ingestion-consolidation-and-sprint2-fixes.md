@@ -240,50 +240,54 @@ mangles it (see below), forcing a full redo of the raw-file merge.
 
 ---
 
-## Phase 2 — Forward-fill: apply automatically, cap-limited, surface only what's left over
+## Phase 2 — Forward-fill: apply automatically, cap-limited, surface only what's left over — DONE
 
 **Files:** `src/forecasting_engine/extraction/bloomberg_csv.py`,
 `app/bloomberg_extraction_panel.py`
 
-**Current behaviour:** `_render_gap_review()` lists every row with any missing
-value in an editable table, defaulting every row to "include" — i.e. *not*
-filled — regardless of whether the reason is a weekend, a market holiday, or a
-genuinely unexplained gap. A person has to manually tick a row, or click
-"Clean all," before anything gets forward-filled.
+**Was:** `_render_gap_review()` listed every row with any missing value in an
+editable table, defaulting every row to "include" — i.e. *not* filled —
+regardless of reason. A person had to manually tick a row, or click "Clean
+all," before anything got forward-filled, and it filled every column
+including targets.
 
-**New behaviour:**
+**Now:**
 
-- [ ] Forward-fill every missing cell automatically, per column, up to a
-      configurable max-gap-days cap — no manual per-row action required, and
-      regardless of the reason label. `forward_fill()`'s underlying mechanic
-      (`ffill(limit=max_gap)`) is already correct; what changes is *when* it
-      runs (always, not only on rows a person marked) and what the review UI
-      shows.
-- [ ] Keep the max-gap-days control configurable — this is a Tier 0 CTQ
-      requirement in the validation-metrics document ("forward-fill only,
-      within the configured limit"), not something to hardcode.
-- [ ] After auto-filling, only show a review row for a date that **still**
-      has a missing value once the cap has been applied (i.e. the gap
-      exceeded `max_gap`). A gap the fill already resolved needs no human
-      judgement and shouldn't appear in the review table at all. In the
-      normal case (most gaps are calendar closures within the cap) this
-      section should end up nearly empty, not listing every gap in the file
-      the way it does today.
-- [ ] `missing_row_report()`'s gap-reason labelling currently checks every
-      column against one blanket NYSE calendar (`_HOLIDAY_CALENDAR = "NYSE"`,
-      line ~34), which is known to be less accurate than a per-signal
-      calendar (`quality/gaps.py` already does this correctly but is
-      currently unused — see Phase 3). Porting that logic in is optional for
-      this phase; the reason label is informational and doesn't currently
-      gate what gets filled. Decide in Phase 3 whether to do it.
-- [ ] Remove the now-unnecessary manual per-row decision state
-      (`gap_decisions_*` session-state keys, the checkbox column, "Clean
-      all"/"Include all" buttons) if the redesign no longer needs them —
-      through the verification gate in Section 0.
-- [ ] Update tests around `forward_fill`/`missing_row_report` and the
-      functional Data-page test to assert: gaps fill without manual
-      interaction, and a gap longer than `max_gap` still shows up as
-      unresolved.
+- [x] `forward_fill()`'s signature changed from `(frame, clean_dates,
+      max_gap)` to `(frame, max_gap, *, exclude=())` — every column except
+      `exclude` is filled on every row automatically, no manual selection.
+      `exclude` exists specifically so a caller can pass the resolved target
+      columns (Task 4.1's `COMMITTED_TARGETS_KEY`/`target_columns`) and have
+      them skipped, per correction 2 — a filled target price on a closed day
+      would fabricate a return that never happened and silently undo the
+      Phase 1/`9bbf9a0` horizon fix.
+- [x] Max-gap-days stays a configurable `number_input` on the Data page (Tier
+      0 CTQ requirement) — nothing hardcoded.
+- [x] `_render_gap_review()` (now effectively a summary, not a review) fills
+      immediately and shows only what `missing_row_report()` still finds
+      afterward — a gap that exceeded the cap, or any target-column gap
+      (targets are excluded from filling at any gap length, so a target's
+      calendar closures are always visible here, permanently, by design).
+- [x] Per-signal calendar labelling (the optional item from the original
+      plan) — **not done**, left as `quality/gaps.py`'s logic was already
+      removed in Phase 3 before this phase started; porting it back in would
+      mean re-adding what Phase 3 deleted. `missing_row_report()`'s blanket-
+      NYSE-calendar reason labelling is unchanged. Revisit only if the reason
+      text turns out to matter in practice — it's informational only, it
+      doesn't gate what gets filled.
+- [x] Removed: `gap_decisions_*` session-state keys, the checkbox column,
+      "Clean all"/"Include all" buttons — none of it is reachable any more.
+- [x] Tests: `tests/unit/test_extraction_bloomberg_csv.py` — `forward_fill`
+      tests rewritten for the new signature, plus a new test confirming an
+      excluded column stays untouched while others still fill.
+      `tests/functional/test_bloomberg_extraction_page.py` — rewrote the two
+      tests that referenced the removed buttons; added tests for a short gap
+      auto-filling silently, a gap longer than the cap still showing as
+      missing, auto-fill never dropping a row, and (using both uploaders
+      together) a target column staying blank even for a gap short enough
+      that a signal would have auto-filled it. `docs/bloomberg-exports.md`
+      updated (the "gaps are left as gaps" claim was no longer true).
+      Full suite green, `ruff check .` clean, verified in the browser.
 
 ---
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from io import StringIO
@@ -186,26 +186,28 @@ def missing_row_report(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def forward_fill(
-    frame: pd.DataFrame, clean_dates: set[pd.Timestamp], max_gap: int
+    frame: pd.DataFrame, max_gap: int, *, exclude: Collection[str] = ()
 ) -> pd.DataFrame:
-    """Carry the last available value into rows marked to clean.
+    """Carry the last available value forward, up to ``max_gap`` rows, on
+    every column except ``exclude``.
 
-    Only ``clean_dates`` are touched — every other row is returned unchanged,
-    so a row is never dropped, only filled. A run of missing values longer
-    than ``max_gap`` is left blank past that point: ``ffill(limit=...)``
-    already stops there, which is exactly "forward-fill up to a maximum gap
-    length, leave longer gaps missing".
+    Applied automatically to every gap, not just ones a caller selects — a
+    calendar closure (a security's own market was shut) isn't a fault to be
+    reviewed, it's the expected value carrying forward unchanged. A run of
+    missing values longer than ``max_gap`` is left blank past that point:
+    ``ffill(limit=...)`` already stops there, which is exactly "forward-fill
+    up to a maximum gap length, leave longer gaps missing".
+
+    ``exclude`` is for target price columns. A filled cell on a day the
+    target's own market was shut would read as a real trading day and
+    fabricate a return that never happened — a target is never forward-filled,
+    whatever gap length is configured.
     """
-    if not clean_dates:
-        return frame
-
     out = frame.copy()
-    selected = frame[DATE_COLUMN].isin(clean_dates)
     for col in frame.columns:
-        if col == DATE_COLUMN:
+        if col == DATE_COLUMN or col in exclude:
             continue
-        candidate = frame[col].ffill(limit=max_gap)
-        out[col] = frame[col].where(~selected, candidate)
+        out[col] = frame[col].ffill(limit=max_gap)
     return out
 
 

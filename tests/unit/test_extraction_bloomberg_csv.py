@@ -19,30 +19,40 @@ def _daily(values):
     return pd.DataFrame({"Date": dates, "A": values})
 
 
-def test_a_short_gap_marked_to_clean_is_carried_forward():
+def test_every_gap_is_filled_automatically_up_to_the_cap():
     frame = _daily([1.0, None, None, 4.0])
-    clean_dates = {frame["Date"][1], frame["Date"][2]}
 
-    out = forward_fill(frame, clean_dates, max_gap=5)
+    out = forward_fill(frame, max_gap=5)
 
     assert out["A"].tolist() == [1.0, 1.0, 1.0, 4.0]
 
 
 def test_a_gap_longer_than_max_gap_stays_blank_past_the_limit():
     frame = _daily([1.0, None, None, None, 5.0])
-    clean_dates = {frame["Date"][1], frame["Date"][2], frame["Date"][3]}
 
-    out = forward_fill(frame, clean_dates, max_gap=2)
+    out = forward_fill(frame, max_gap=2)
 
     assert out["A"].tolist()[:3] == [1.0, 1.0, 1.0]
     assert pd.isna(out["A"].iloc[3])
 
 
-def test_a_row_not_marked_to_clean_is_left_untouched():
+def test_an_excluded_column_is_never_filled_however_short_the_gap():
+    # A target price column: a filled cell on a closed-market day would read
+    # as a real trading day and fabricate a return that never happened.
     frame = _daily([1.0, None, 3.0])
 
-    out = forward_fill(frame, clean_dates=set(), max_gap=5)
+    out = forward_fill(frame, max_gap=5, exclude={"A"})
 
     assert out["A"].iloc[0] == 1.0
     assert pd.isna(out["A"].iloc[1])
     assert out["A"].iloc[2] == 3.0
+
+
+def test_excluding_one_column_does_not_stop_others_filling():
+    frame = _daily([1.0, None, 3.0])
+    frame["B"] = [10.0, None, 30.0]
+
+    out = forward_fill(frame, max_gap=5, exclude={"A"})
+
+    assert pd.isna(out["A"].iloc[1])
+    assert out["B"].iloc[1] == 10.0

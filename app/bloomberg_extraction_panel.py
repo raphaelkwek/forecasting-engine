@@ -16,6 +16,7 @@ construction, whatever it's named.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -154,8 +155,6 @@ def render() -> None:
             _LOGGED_KEY,
         ):
             st.session_state.pop(key, None)
-        for stale in [k for k in st.session_state if k.startswith("gap_decisions_")]:
-            st.session_state.pop(stale, None)
         st.session_state[_UPLOADER_VERSION_KEY] = (
             st.session_state.get(_UPLOADER_VERSION_KEY, 0) + 1
         )
@@ -248,7 +247,7 @@ def render() -> None:
             factors = _download_factors()
     ff = _render_factors(factors, combined)
 
-    download_merged = _render_gap_review(combined)
+    download_merged = _render_gap_review(combined, set(target_columns.values()))
 
     st.divider()
     st.markdown(ui.eyebrow("Using this data"), unsafe_allow_html=True)
@@ -474,103 +473,53 @@ def _render_factors(factors: FactorFile | None, merged: pd.DataFrame) -> pd.Data
     return ff
 
 
-def _render_gap_review(merged: pd.DataFrame) -> pd.DataFrame:
-    """Show every row with a missing value and why, and let the user clean some.
+def _render_gap_review(merged: pd.DataFrame, target_columns: Collection[str]) -> pd.DataFrame:
+    """Forward-fill every signal gap automatically, up to a configurable cap,
+    and show whatever is still missing afterward.
 
-    Everything starts as-is — cleaning a row is the deliberate act, the same
-    rule the outlier review on the old pipeline used, because a gap is
-    usually a real calendar difference rather than a fault. No row is ever
-    dropped: a row marked to clean has its missing signals forward-filled
-    from the last available value instead. Returns the frame to download.
+    No manual per-row decision — a calendar closure (a security's own market
+    was shut) isn't a fault to be reviewed, it's the expected value carrying
+    forward unchanged, so the fill just happens. Targets are the one
+    exception, and are never filled regardless of the cap: a filled price on
+    a day the target's own market was shut would read as a real trading day
+    and fabricate a return that never happened. What's left below is only
+    what a person actually needs to know about — a gap too long to fill, or a
+    target's own (permanently unfilled) closures.
     """
-    gaps = bloomberg_csv.missing_row_report(merged)
-    if gaps.empty:
-        return merged
-
-    st.markdown(ui.eyebrow("Rows with missing values"), unsafe_allow_html=True)
-    st.caption(
-        "Each row below is missing at least one signal, with a likely reason — "
-        "most are calendar gaps (a security's own market was closed), not "
-        "errors. Nothing is removed from the report above, and no row is "
-        "dropped from the downloads. Untick a row, or use the buttons below, "
-        "to forward-fill it from the last available value in the downloads "
-        "only, up to the gap length below."
-    )
-
-    key = f"gap_decisions_{len(merged)}_{hash(tuple(merged.columns))}"
-    decisions: dict[str, str] = st.session_state.setdefault(key, {})
-
-    clean_all, include_all, gap_col, _spacer = st.columns(
-        [1, 1, 1.2, 2.8], vertical_alignment="bottom"
-    )
-    max_gap = gap_col.number_input(
+    key = f"gap_fill_{len(merged)}_{hash(tuple(merged.columns))}"
+    max_gap = st.number_input(
         "Max fill-gap (days)",
         min_value=1,
         max_value=30,
         value=1,
         step=1,
         key=f"{key}_max_gap",
-        help="A gap longer than this is left blank instead of forward-filled.",
+        help="Signal gaps are forward-filled automatically up to this many "
+        "days; a longer gap is left blank. Targets are never filled.",
     )
-    if clean_all.button("Clean all listed rows", key=f"{key}_clean_all"):
-        for date in gaps["Date"]:
-            decisions[date.date().isoformat()] = "clean"
-        st.rerun()
-    if include_all.button("Include all listed rows", key=f"{key}_include_all"):
-        decisions.clear()
-        st.rerun()
+    filled = bloomberg_csv.forward_fill(merged, int(max_gap), exclude=target_columns)
 
-    # The table shows dd/mm/yyyy for reading, but decisions are keyed on the
-    # ISO string taken straight from each row's own Timestamp — matched back
-    # up by position below, never by re-parsing the displayed text — so a
-    # dd/mm date is never at risk of being misread as mm/dd.
-    gap_rows = list(gaps.iterrows())
-    edited = st.data_editor(
-        [
-            {
-                "Include": decisions.get(row["Date"].date().isoformat(), "include") == "include",
-                "Date": _fmt(row["Date"]),
-                "Missing columns": row["Missing columns"],
-                "Likely reason": row["Likely reason"],
-            }
-            for _, row in gap_rows
-        ],
+    remaining = bloomberg_csv.missing_row_report(filled)
+    if remaining.empty:
+        return filled
+
+    st.markdown(ui.eyebrow("Rows still missing a value"), unsafe_allow_html=True)
+    st.caption(
+        "Every signal gap up to the cap above was forward-filled automatically "
+        "in the downloads. What's left here either exceeded that cap, or is a "
+        "target column, which is never filled."
+    )
+    st.dataframe(
+        bloomberg_csv.with_display_dates(remaining),
         width="stretch",
         hide_index=True,
-        disabled=["Date", "Missing columns", "Likely reason"],
         column_config={
-            "Include": st.column_config.CheckboxColumn(
-                "Include", help="Untick to forward-fill this row in the downloads", width="small"
-            ),
             "Date": st.column_config.TextColumn(width="small"),
             "Missing columns": st.column_config.TextColumn(width="large"),
             "Likely reason": st.column_config.TextColumn(width="medium"),
         },
-        key=f"{key}_editor",
     )
-
-    changed = False
-    for (_, gap_row), edited_row in zip(gap_rows, edited, strict=True):
-        iso = gap_row["Date"].date().isoformat()
-        wanted = "include" if edited_row["Include"] else "clean"
-        if decisions.get(iso) != wanted:
-            decisions[iso] = wanted
-            changed = True
-    if changed:
-        st.rerun()
-
-    clean_dates = {pd.Timestamp(iso) for iso, choice in decisions.items() if choice == "clean"}
-    cleaned = bloomberg_csv.forward_fill(merged, clean_dates, int(max_gap))
-
-    if clean_dates:
-        still_missing = bloomberg_csv.missing_row_report(cleaned)
-        stuck = still_missing[still_missing["Date"].isin(clean_dates)]
-        if not stuck.empty:
-            st.caption(
-                f"{len(stuck)} marked row(s) still have a gap longer than "
-                f"{int(max_gap)} day(s) and remain missing in the downloads."
-            )
-    return cleaned
+    return filled
 
 
 def render_summary() -> None:

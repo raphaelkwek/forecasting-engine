@@ -78,14 +78,19 @@ The merged Bloomberg CSV is downloadable directly. Fama-French factors are
 downloaded only when requested, cached by content hash, and can then be
 downloaded separately or alongside Bloomberg data in a workbook.
 
-### What it does not do
+### What it does, and what it deliberately still doesn't
 
-**Gaps are left as gaps.** Different indices keep different trading calendars.
-Across a real ten-year pull the union was 2,610 dates with all signals present
-on only 2,499 of them — `spx_close` missing 97, `vix` 65, the spreads around 80.
-Those cells are left empty, which the contract treats as missing data. Filling
-them here would hide from the data quality report the very thing it exists to
-report; forward-filling happens later, capped and counted.
+**Signal gaps are filled automatically, capped, on the Data page** — not
+here. Different indices keep different trading calendars; across a real
+ten-year pull the union was 2,610 dates with all signals present on only
+2,499 of them. Each signal gap is carried forward from its last available
+value up to a configurable day limit; a gap longer than that is left blank
+and shown, since a gap that long is more likely a real problem than a
+calendar closure. Nothing is ever dropped — a row stays even if every one
+of its cells is still blank after filling.
+
+**Target columns are the one exception, and are never filled, at any gap
+length.** See "Target indices" above.
 
 **Range breaches are flagged, not corrected.** If almost every value in a column
 falls outside its documented range, the converter says so — that pattern means
