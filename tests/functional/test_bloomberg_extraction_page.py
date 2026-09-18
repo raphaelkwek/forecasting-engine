@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from forecasting_engine.extraction.targets import TargetRole
 from forecasting_engine.ingest.fama_french import FactorFile
 from forecasting_engine.ingest.provenance import SourceFile
 from forecasting_engine.ingest.upload import MAX_UPLOAD_BYTES
@@ -78,6 +79,17 @@ def page(monkeypatch, tmp_path):
 
 
 def upload(page, files):
+    """Upload through the **signal** uploader (index 1) — used by tests about
+    generic Bloomberg merge/validate behaviour, unrelated to target-role
+    detection. The securities these use (SPX, VIX, A Index, ...) are picked
+    as arbitrary examples, not because their ticker matters."""
+    page.file_uploader[1].set_value(files)
+    return page.run()
+
+
+def upload_targets(page, files):
+    """Upload through the **target** uploader (index 0) — used by tests about
+    target role/field detection specifically."""
     page.file_uploader[0].set_value(files)
     return page.run()
 
@@ -107,7 +119,7 @@ def test_an_xlsx_export_merges_the_same_as_a_csv_one(page):
 
     assert not result.error
     assert "Merged 1 file(s) into 2 rows, 1 data columns" in texts(result.success)
-    merged = result.session_state["extraction_merged"]
+    merged = result.session_state["signal_merged"]
     assert "SPX_Index_PX_LAST" in merged.columns
 
 
@@ -131,7 +143,7 @@ def test_original_exports_with_trailing_cells_and_any_field_merge_unchanged(page
 
     assert not result.error
     assert "Merged 1 file(s)" in texts(result.success)
-    merged = result.session_state["extraction_merged"]
+    merged = result.session_state["signal_merged"]
     assert "SPX_Index_TOT_RETURN_INDEX_GROSS_DVDS" in merged.columns
 
 
@@ -148,7 +160,9 @@ def test_a_file_that_fails_the_schema_alone_is_reported_and_nothing_merges(page)
 
     assert not result.success
     assert "PX_LAST" in texts(result.error)
-    assert "Upload Bloomberg CSV or Excel exports above to get started" in texts(result.info)
+    assert "Upload target index files and/or signal files above to get started" in texts(
+        result.info
+    )
 
 
 def test_a_bad_type_file_among_good_files_is_excluded_while_good_ones_merge(page):
@@ -206,9 +220,10 @@ def test_requested_factors_are_previewed_and_enable_factor_downloads(page):
     assert "Workbook (.xlsx)" in labels
 
 
-def test_the_uploader_is_always_multi_file_without_a_toggle(page):
+def test_both_uploaders_are_always_multi_file_without_a_toggle(page):
     assert not page.toggle
     assert page.file_uploader[0].accept_multiple_files is True
+    assert page.file_uploader[1].accept_multiple_files is True
 
 
 def test_an_oversized_export_is_rejected_before_merging(page):
@@ -226,7 +241,7 @@ def test_a_column_with_no_data_at_all_is_dropped_and_noted(page):
     csv = export("JPMVXYGL Index", rows, fields="PX_LAST,PX_BID")
     result = upload(page, [("jpm.csv", csv, "text/csv")])
 
-    merged = result.session_state["extraction_merged"]
+    merged = result.session_state["signal_merged"]
     assert "JPMVXYGL_Index_PX_BID" not in merged.columns
     assert "Dropped 1 column" in texts(result.caption)
 
@@ -270,14 +285,14 @@ def test_cleaning_all_gap_rows_does_not_touch_the_report_above_or_drop_rows(page
     result = upload(
         page, [("lf98truu.csv", lf98truu, "text/csv"), ("legatruu.csv", legatruu, "text/csv")]
     )
-    assert len(result.session_state["extraction_merged"]) == 3
+    assert len(result.session_state["signal_merged"]) == 3
 
     clean_button = next(b for b in result.button if b.label == "Clean all listed rows")
     result = clean_button.click().run()
 
     assert not result.exception
     # Cleaning only affects the downloads, never the merged data or its report.
-    assert len(result.session_state["extraction_merged"]) == 3
+    assert len(result.session_state["signal_merged"]) == 3
     assert "Rows with missing values" in texts(result.markdown)
 
 
@@ -299,3 +314,90 @@ def test_the_merged_bytes_are_stored_under_their_hash(page, tmp_path):
 
     (stored,) = (tmp_path / "data" / "uploads").glob("*.csv")
     assert stored.read_bytes().startswith(b"Date,SPX_Index_PX_LAST\n2020-01-02,")
+
+
+# --- target vs. signal split (Phase 4.1) ------------------------------------
+
+
+def test_target_role_is_pre_filled_from_the_recognised_equity_ticker(page):
+    spx = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
+    result = upload_targets(page, [("spx.csv", spx, "text/csv")])
+
+    assert not result.error
+    assert "1 target file(s) merged into 2 rows" in texts(result.success)
+    assert result.selectbox[0].value == TargetRole.EQUITY
+
+
+def test_bond_ticker_is_pre_filled_as_the_bond_role(page):
+    bond = export("LBUSTRUU Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
+    result = upload_targets(page, [("agg.csv", bond, "text/csv")])
+
+    assert result.selectbox[0].value == TargetRole.BOND
+
+
+def test_an_unrecognised_ticker_leaves_the_role_unset_but_does_not_break_the_page(page):
+    mystery = export("ZZZ Index", ["1/2/2020,1.0", "1/3/2020,2.0"])
+    result = upload_targets(page, [("mystery.csv", mystery, "text/csv")])
+
+    assert not result.error
+    assert not result.exception
+    assert result.selectbox[0].value is None
+    # The rest of the page still works even though no role was resolved.
+    labels = {m.label: m.value for m in result.metric}
+    assert labels["Rows"] == "2"
+
+
+def test_the_field_defaults_to_total_return_when_present(page):
+    total_return = (
+        b"Security,SPX Index,\nPeriod,D,\n,,\n"
+        b"Date,PX_LAST,TOT_RETURN_INDEX_GROSS_DVDS\n"
+        b"2024-01-02,100.0,105.0\n2024-01-03,101.0,106.0\n"
+    )
+    result = upload_targets(page, [("spx-tr.csv", total_return, "text/csv")])
+
+    # Selectbox 0 is the role, selectbox 1 is the field.
+    assert result.selectbox[1].value == "TOT_RETURN_INDEX_GROSS_DVDS"
+
+
+def test_two_files_set_to_the_same_role_is_reported_as_an_error(page):
+    spx = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
+    other = export("ZZZ Index", ["1/2/2020,1.0", "1/3/2020,2.0"])
+    result = upload_targets(
+        page, [("spx.csv", spx, "text/csv"), ("zzz.csv", other, "text/csv")]
+    )
+
+    # ZZZ's role is unrecognised (selectbox index 2 — file 2's role) —
+    # force a collision by selecting Equity for it too, same as file 1.
+    result = result.selectbox[2].select(TargetRole.EQUITY).run()
+
+    assert "same role" in texts(result.error)
+
+
+def test_target_and_signal_files_combine_and_commit_with_resolved_targets(page):
+    spx = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
+    vix = export("VIX Index", ["1/2/2020,15.0", "1/3/2020,16.0"])
+
+    upload_targets(page, [("spx.csv", spx, "text/csv")])
+    result = upload(page, [("vix.csv", vix, "text/csv")])
+
+    commit_button = next(b for b in result.button if b.label == "Use Updated Data")
+    result = commit_button.click().run()
+
+    committed = result.session_state["extraction_committed"]
+    assert "SPX_Index_PX_LAST" in committed.columns
+    assert "VIX_Index_PX_LAST" in committed.columns
+    assert len(committed) == 2
+
+    targets = result.session_state["extraction_committed_targets"]
+    assert targets[TargetRole.EQUITY] == "SPX_Index_PX_LAST"
+    assert TargetRole.BOND not in targets
+
+
+def test_missing_one_target_role_does_not_block_committing(page):
+    spx = export("SPX Index", ["1/2/2020,100.0", "1/3/2020,101.0"])
+    result = upload_targets(page, [("spx.csv", spx, "text/csv")])
+
+    commit_button = next(b for b in result.button if b.label == "Use Updated Data")
+    result = commit_button.click().run()
+
+    assert "now committed" in texts(result.success)

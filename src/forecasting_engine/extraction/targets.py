@@ -34,3 +34,9 @@ TARGET_TICKERS: Mapping[str, TargetRole] = {
     "SPX Index": TargetRole.EQUITY,
     "LBUSTRUU Index": TargetRole.BOND,
 }
+
+#: Both targets are forecast on a total-return basis — dividends/coupons
+#: reinvested — never the plain price series. Pre-filled default for which
+#: field within a target export is the target series; overridable, since a
+#: file can carry more than one field (e.g. PX_LAST alongside this one).
+PREFERRED_FIELD = "TOT_RETURN_INDEX_GROSS_DVDS"

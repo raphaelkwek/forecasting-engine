@@ -341,7 +341,7 @@ ingestion**, not on the Models page — this matches the proposal's own Step 1
 ("the user uploads... and selects the target indices"). The Models page reads
 which targets were confirmed, it doesn't ask the user to pick a column.
 
-### Task 4.1 — explicit target vs. signal uploads, with ticker detection as a pre-filled default
+### Task 4.1 — explicit target vs. signal uploads, with ticker detection as a pre-filled default — DONE
 
 Design decision (from team discussion): don't rely on pure inference to
 decide which uploaded files are targets (y) vs. signals (x) — a single
@@ -350,36 +350,51 @@ Bloomberg file can carry multiple fields (e.g. both `PX_LAST` and
 "this file is SPX Index" doesn't by itself say which *column* is the target.
 Make the split structural and explicit, with detection as a convenience.
 
-- [ ] Split the Data page's upload area into two: **"Target index files"**
-      (expects exactly the equity and bond files) and **"Signal files"**
-      (everything else — macro/market data, freeform, many files, merged the
-      same open-schema way as today). Which files are y vs. x becomes a
-      structural choice, not an inferred one — this also removes any risk of
-      a target column silently ending up in the signal set.
-- [ ] Within the target upload area, run ticker detection (**Bloomberg
-      Security ticker**, the same metadata field
-      `extraction/bloomberg_csv.py::_security()` already extracts, matched via
-      the mapping table salvaged from `ingest/bloomberg.py::TICKER_MAP` in
-      Phase 1/3) as a **pre-filled default**, not a silent final answer: show
-      "detected: SPX Index, Total Return — Equity target" with an explicit
-      override control for both the role (Equity/Bond) and, if the file has
-      more than one numeric field column, which column is the target series.
-      Confirm the exact ticker string the team's real AGG export uses before
-      hardcoding a default match — don't guess.
-- [ ] Default the field match to **total-return** specifically
-      (`TOT_RETURN_INDEX_GROSS_DVDS` or equivalent) per the validation-
-      metrics document's total-return-basis requirement, but let the override
-      control pick a different column if the file doesn't have that field or
-      the user wants something else.
-- [ ] Do **not** hard-block "Use Updated Data" if only one target is
-      uploaded — a user may legitimately be working with equity-only data
-      this round. Record in the committed session state which target(s) were
-      actually resolved (a mapping of role → resolved column name, or `None`
-      for a role with nothing uploaded).
-- [ ] Signal-column candidates are always drawn only from the Signal-files
-      merge, never from the Target-files merge — structurally impossible for
-      a target to leak in as a signal, without needing a runtime exclusion
-      check.
+- [x] Split the Data page's upload area into two: **"Target index files"**
+      and **"Signal files"** (`app/bloomberg_extraction_panel.py`). Each has
+      its own `st.file_uploader` and its own working-copy session keys
+      (`TARGET_MERGED_KEY`/`TARGET_REPORT_KEY` vs. `SIGNAL_MERGED_KEY`/
+      `SIGNAL_REPORT_KEY`), parsed/merged through a shared `_parse_and_merge()`
+      helper (both uploaders need identical per-file validation, only the
+      role handling afterward differs).
+- [x] Ticker detection via `extraction/targets.py::TARGET_TICKERS`
+      (`SPX Index` → equity, `LBUSTRUU Index` → bond, per correction 4/5 —
+      Phase 3 had already salvaged and reshaped this from `TICKER_MAP`) runs
+      as a pre-filled default in `_render_target_uploader()`: a `Role`
+      selectbox per uploaded target file, defaulted to the detected role via
+      `index=`, `None`/blank when the ticker isn't recognised — always
+      overridable, never silently trusted. A parallel `Field` selectbox picks
+      which column is the target series when a file carries more than one
+      field.
+- [x] Field defaults to `PREFERRED_FIELD = "TOT_RETURN_INDEX_GROSS_DVDS"`
+      (now defined in `extraction/targets.py`) when present, else the first
+      available field — overridable via the Field selectbox.
+- [x] Committing with only one (or zero) targets resolved does not block
+      "Use Updated Data" — `COMMITTED_TARGETS_KEY` stores whatever mapping of
+      `TargetRole → column name` was actually resolved, which can be a
+      partial or empty dict. Two files both resolving to the same role is
+      caught and surfaced as an error (`st.error`, "pick one role per file")
+      rather than silently taking the last one.
+- [x] Target and signal merges combine via a new `_combine()` (outer join on
+      Date) only at the point a single frame is needed downstream
+      (`COMMITTED_KEY`) — signal-column candidates for modelling will draw
+      only from the signal merge once Task 4.2 reads `COMMITTED_TARGETS_KEY`,
+      so a target can't end up treated as a signal by construction, not by a
+      runtime exclusion check.
+- [x] Tests: `tests/functional/test_bloomberg_extraction_page.py` — 6 new
+      tests (role pre-fill for both known tickers, an unrecognised ticker
+      leaving the role unset without breaking the page, the field defaulting
+      to total-return when present, the same-role-twice error, combining
+      target+signal into one committed frame with the right
+      `COMMITTED_TARGETS_KEY`, and committing with only one target present).
+      8 pre-existing tests updated (new session-state key names, the changed
+      "nothing uploaded" message) — all were about generic merge/validate
+      behaviour unrelated to target roles, so they were rerouted to upload
+      through the signal uploader rather than changed in substance.
+      `tests/unit/test_extraction_targets.py` — 1 new test for
+      `PREFERRED_FIELD`. Full suite green, `ruff check .` clean, verified in
+      the browser (both upload sections render correctly, no console/server
+      errors beyond Streamlit's own offline telemetry calls).
 
 ### Task 4.2 — Models page: target-aware, not target-agnostic
 
