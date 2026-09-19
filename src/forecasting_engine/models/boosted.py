@@ -40,12 +40,30 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 _LIBRARIES: dict[str, type] = {"xgboost": XGBRegressor, "lightgbm": LGBMRegressor}
 
-#: Fixed, non-tuned stability settings per library — kept out of the search space
-#: so a tiny synthetic dataset (a unit test) doesn't need special-casing.
+#: Fixed, non-tuned settings per library. ``subsample_freq`` is what makes
+#: LightGBM honour the tuned ``subsample`` at all — without it the fraction is
+#: silently ignored.
 _FIXED_PARAMS: dict[str, dict] = {
     "xgboost": {"verbosity": 0},
-    "lightgbm": {"verbose": -1, "min_child_samples": 1, "min_data_in_leaf": 1},
+    "lightgbm": {"verbose": -1, "subsample_freq": 1},
 }
+
+_LEAF_FLOOR_CAP: int = 50
+
+
+def _leaf_params(library: str, n_rows: int) -> dict:
+    """Fewest training rows a tree leaf may be built on, scaled to the data.
+
+    A leaf built on a single day is memorised noise, which is the easiest way
+    for a boosted model to overfit. One row in twenty (capped) keeps a real
+    120-row window at a meaningful floor while a 30-row test fixture stays
+    fittable. Named per library: XGBoost counts rows through the hessian
+    (``min_child_weight``, one per row for squared error), LightGBM directly.
+    """
+    floor = max(1, min(_LEAF_FLOOR_CAP, n_rows // 20))
+    key = "min_child_weight" if library == "xgboost" else "min_child_samples"
+    return {key: floor}
+
 
 N_TRIALS: int = 15
 """Working default (not sponsor-confirmed): Optuna trials per library, tuned once
@@ -65,11 +83,19 @@ class BoostedConfigError(ValueError):
 
 def _search_space(trial: optuna.Trial) -> dict:
     """Working default (not sponsor-confirmed), shared by both libraries so PBO's
-    comparison reflects the algorithm, not an unevenly-sized search."""
+    comparison reflects the algorithm, not an unevenly-sized search.
+
+    Every parameter name below means the same thing in both libraries. The
+    sampling fractions and L1/L2 penalties are there so the search can trade
+    fit for simplicity instead of only ever growing a bigger model."""
     return {
         "n_estimators": trial.suggest_int("n_estimators", 20, 100),
-        "max_depth": trial.suggest_int("max_depth", 2, 5),
+        "max_depth": trial.suggest_int("max_depth", 2, 4),
         "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+        "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
     }
 
 
@@ -99,8 +125,10 @@ def tune_hyperparameters(
     x_train, x_val = x.iloc[:split], x.iloc[split:]
     y_train, y_val = y.iloc[:split], y.iloc[split:]
 
+    leaf = _leaf_params(library, len(x_train))
+
     def objective(trial: optuna.Trial) -> float:
-        params = {**_search_space(trial), **_FIXED_PARAMS[library]}
+        params = {**leaf, **_search_space(trial), **_FIXED_PARAMS[library]}
         model = _LIBRARIES[library](**params).fit(x_train, y_train)
         predicted = pd.Series(model.predict(x_val), index=x_val.index)
         return rmse(predicted, y_val)
@@ -143,7 +171,10 @@ class BoostedForecaster:
                 f"(need at least {_MIN_TRAINING_ROWS}, got {len(frame)})."
             )
         x, y = frame[signals], frame[panel.targets[0]]
-        self._model = _LIBRARIES[self.library](**self.params).fit(x, y)
+        # A caller's explicit leaf setting wins; tuned params carry none, so the
+        # data-scaled floor applies to every walk-forward refit.
+        params = {**_leaf_params(self.library, len(x)), **self.params}
+        self._model = _LIBRARIES[self.library](**params).fit(x, y)
         self._signals = signals
         self._fit_x = x
 
